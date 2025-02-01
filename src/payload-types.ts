@@ -16,6 +16,8 @@ export interface Config {
     media: Media;
     categories: Category;
     users: User;
+    'status-groups': StatusGroup;
+    statuses: Status;
     redirects: Redirect;
     forms: Form;
     'form-submissions': FormSubmission;
@@ -27,13 +29,19 @@ export interface Config {
     'payload-preferences': PayloadPreference;
     'payload-migrations': PayloadMigration;
   };
-  collectionsJoins: {};
+  collectionsJoins: {
+    'status-groups': {
+      linkedStatuses: 'statuses';
+    };
+  };
   collectionsSelect: {
     pages: PagesSelect<false> | PagesSelect<true>;
     posts: PostsSelect<false> | PostsSelect<true>;
     media: MediaSelect<false> | MediaSelect<true>;
     categories: CategoriesSelect<false> | CategoriesSelect<true>;
     users: UsersSelect<false> | UsersSelect<true>;
+    'status-groups': StatusGroupsSelect<false> | StatusGroupsSelect<true>;
+    statuses: StatusesSelect<false> | StatusesSelect<true>;
     redirects: RedirectsSelect<false> | RedirectsSelect<true>;
     forms: FormsSelect<false> | FormsSelect<true>;
     'form-submissions': FormSubmissionsSelect<false> | FormSubmissionsSelect<true>;
@@ -676,6 +684,76 @@ export interface Form {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "status-groups".
+ */
+export interface StatusGroup {
+  id: number;
+  /**
+   * The name of the status group displayed in the admin panel.
+   */
+  name: string;
+  /**
+   * A unique alias for the status group used internally.
+   */
+  alias: string;
+  /**
+   * Specify whether this status group is active or not.
+   */
+  isActive: 'enabled' | 'disabled';
+  /**
+   * Collections where this status group is applicable.
+   */
+  linkedCollections?: ('products' | 'offers' | 'orders' | 'clients' | 'bots' | 'cities' | 'districts')[] | null;
+  linkedStatuses?: {
+    docs?: (number | Status)[] | null;
+    hasNextPage?: boolean | null;
+  } | null;
+  /**
+   * Additional information about the status group.
+   */
+  description?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "statuses".
+ */
+export interface Status {
+  id: number;
+  /**
+   * A unique alias for the status.
+   */
+  alias: string;
+  /**
+   * A unique label for the status.
+   */
+  label: string;
+  /**
+   * The group this status belongs to.
+   */
+  statusGroup: number | StatusGroup;
+  /**
+   * Optional description for the status.
+   */
+  description?: string | null;
+  /**
+   * Specify whether this status is active or not.
+   */
+  isActive: 'enabled' | 'disabled';
+  /**
+   * Optional HEX code for the status color.
+   */
+  color?: string | null;
+  /**
+   * Mark this status as the default for its status group (optional).
+   */
+  setAsDefault?: boolean | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "redirects".
  */
 export interface Redirect {
@@ -888,21 +966,25 @@ export interface Client {
   id: number;
   telegram_id: number;
   /**
-   * Выберите ботов из коллекции Bots, с которыми связан данный клиент.
+   * Select bots from the Bots collection associated with this client.
    */
   bots: (number | Bot)[];
   first_name?: string | null;
   last_name?: string | null;
   user_name?: string | null;
+  /**
+   * Automatically computed display name in the format "@" + username.
+   */
+  display_name?: string | null;
+  /**
+   * Select the client status from dynamic statuses.
+   */
+  status?: (number | null) | Status;
   last_visit?: string | null;
   /**
-   * Общее количество посещений этим клиентом. При первом визите устанавливается 1, при повторном – можно увеличить.
+   * The total number of visits by this client. Set to 1 on the first visit and incremented on subsequent visits.
    */
   total_visit: number;
-  /**
-   * Статус клиента. "new" – новый, "active" – активный, "banned" – заблокирован.
-   */
-  status: 'new' | 'active' | 'banned';
   updatedAt: string;
   createdAt: string;
 }
@@ -1024,6 +1106,14 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'users';
         value: number | User;
+      } | null)
+    | ({
+        relationTo: 'status-groups';
+        value: number | StatusGroup;
+      } | null)
+    | ({
+        relationTo: 'statuses';
+        value: number | Status;
       } | null)
     | ({
         relationTo: 'redirects';
@@ -1392,6 +1482,35 @@ export interface UsersSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "status-groups_select".
+ */
+export interface StatusGroupsSelect<T extends boolean = true> {
+  name?: T;
+  alias?: T;
+  isActive?: T;
+  linkedCollections?: T;
+  linkedStatuses?: T;
+  description?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "statuses_select".
+ */
+export interface StatusesSelect<T extends boolean = true> {
+  alias?: T;
+  label?: T;
+  statusGroup?: T;
+  description?: T;
+  isActive?: T;
+  color?: T;
+  setAsDefault?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "redirects_select".
  */
 export interface RedirectsSelect<T extends boolean = true> {
@@ -1680,9 +1799,10 @@ export interface ClientsSelect<T extends boolean = true> {
   first_name?: T;
   last_name?: T;
   user_name?: T;
+  display_name?: T;
+  status?: T;
   last_visit?: T;
   total_visit?: T;
-  status?: T;
   updatedAt?: T;
   createdAt?: T;
 }

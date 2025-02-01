@@ -1,9 +1,11 @@
-// Путь: src/plugins/TelegramAPI/index.ts
-// Версия: 5.2.2
+// Path: src/plugins/TelegramAPI/index.ts
+// Version: 5.2.4
 //
-// Этот плагин подключает коллекции Bots и Clients, инициализирует ботов через grammY,
-// регистрирует команды, обрабатывает команду /start, обновляет или создаёт клиента (с использованием утилиты processClient),
-// выбирает лейаут по alias, обновляет описание бота в Telegram (если оно задано), и осуществляет подробное логирование.
+// This plugin connects the Bots and Clients collections, initializes bots using grammY,
+// registers commands, processes the /start command, updates or creates a client (using the processClient utility),
+// selects a layout by alias, updates the bot description in Telegram (if provided), and performs detailed logging.
+// The status-checking logic has been updated to work with dynamic statuses (a relationship field).
+// If a client's status (populated as an object or as an ID) has an alias equal to "banned", the client is blocked.
 
 import type { Payload, Config, Plugin } from 'payload';
 import {
@@ -41,7 +43,7 @@ const TelegramAPIPlugin: Plugin = (incomingConfig: Config): Config => {
       Clients,
     ],
     onInit: async (payload: Payload) => {
-      log('info', 'Инициализация TelegramAPIPlugin началась.', payload);
+      log('info', 'TelegramAPIPlugin initialization started.', payload);
       await initializeBots(payload);
     },
   };
@@ -51,26 +53,26 @@ export default TelegramAPIPlugin;
 
 async function initializeBots(payload: Payload) {
   try {
-    log('info', 'Поиск всех включённых ботов...', payload);
+    log('info', 'Searching for all enabled bots...', payload);
     const { docs: bots } = await payload.find({
       collection: 'bots',
       where: { enabled: { equals: true } },
       limit: 999,
     });
-    log('info', `Найдено ${bots.length} ботов для инициализации.`, payload);
+    log('info', `Found ${bots.length} bots for initialization.`, payload);
     for (const botData of bots) {
       await initSingleBot(payload, botData);
     }
   } catch (err: any) {
-    log('error', `Ошибка инициализации ботов: ${err.message}`, payload);
+    log('error', `Error initializing bots: ${err.message}`, payload);
   }
 }
 
 async function initSingleBot(payload: Payload, botData: any) {
   try {
-    log('info', `Инициализация бота "${botData.name}" началась.`, payload);
+    log('info', `Initializing bot "${botData.name}"...`, payload);
     if (!botData.token) {
-      log('error', `❌ Бот "${botData.name}" пропущен: нет токена.`, payload);
+      log('error', `❌ Bot "${botData.name}" skipped: no token provided.`, payload);
       return;
     }
 
@@ -87,7 +89,7 @@ async function initSingleBot(payload: Payload, botData: any) {
         if (!data) return;
         const [cbType, cbValue] = data.split('|');
         if (!cbValue) {
-          await ctx.reply('Не указано значение для callback.');
+          await ctx.reply('Callback value is missing.');
           return;
         }
         if (cbType === 'layout') {
@@ -95,20 +97,20 @@ async function initSingleBot(payload: Payload, botData: any) {
           if (layoutBlock) {
             await sendLayoutBlock(ctx, layoutBlock);
           } else {
-            await ctx.reply(`Лейаут с alias "${cbValue}" не найден.`);
+            await ctx.reply(`Layout with alias "${cbValue}" not found.`);
           }
         } else if (cbType === 'message') {
           await ctx.reply(cbValue);
         } else if (cbType === 'command') {
-          await ctx.reply(`Команда "${cbValue}" выполнена.`);
+          await ctx.reply(`Command "${cbValue}" executed.`);
         } else if (cbType === 'link') {
           await ctx.answerCallbackQuery();
         } else {
-          await ctx.reply('Неизвестный тип кнопки');
+          await ctx.reply('Unknown button type');
         }
-        log('info', `Обработан callback: ${cbType}|${cbValue}`, undefined);
+        log('info', `Processed callback: ${cbType}|${cbValue}`, undefined);
       } catch (error: any) {
-        log('error', `Ошибка обработки callback_query: ${error.message}`, undefined);
+        log('error', `Error processing callback_query: ${error.message}`, undefined);
       }
     });
 
@@ -120,31 +122,48 @@ async function initSingleBot(payload: Payload, botData: any) {
           description: c.responseText?.slice(0, 50) || 'No description',
         })),
       );
-      log('info', `Зарегистрировано ${commands.length} команд для бота "${botData.name}".`, payload);
+      log('info', `Registered ${commands.length} commands for bot "${botData.name}".`, payload);
     }
 
     bot.command('start', async (ctx) => {
-      log('info', 'Команда /start получена.', payload);
+      log('info', 'Command /start received.', payload);
       const telegramId = ctx.from?.id;
       if (!telegramId) {
-        log('error', 'Не удалось получить Telegram ID (ctx.from.id отсутствует).', payload);
+        log('error', 'Failed to retrieve Telegram ID (ctx.from.id is undefined).', payload);
         return;
       }
       const numericBotId: number = botData.id;
-      log('debug', `Поиск клиента с telegram_id=${telegramId} и bot=${numericBotId}`, payload);
+      log('debug', `Searching for client with telegram_id=${telegramId} and bot=${numericBotId}`, payload);
       const client = await processClient(payload, telegramId, numericBotId, ctx.from);
-      log('debug', `Данные клиента: ${JSON.stringify(client)}`, payload);
-      if (client.status === 'banned') {
+      log('debug', `Client data: ${JSON.stringify(client)}`, payload);
+
+      // Check if the client is banned based on dynamic status (alias "banned")
+      let isBanned = false;
+      if (client.status) {
+        if (typeof client.status === 'object' && client.status !== null) {
+          isBanned = client.status.alias === 'banned';
+        } else {
+          const statusResult = await payload.find({
+            collection: 'statuses',
+            where: { id: { equals: client.status } },
+            limit: 1,
+          });
+          const statusDoc = statusResult.docs[0];
+          isBanned = statusDoc ? statusDoc.alias === 'banned' : false;
+        }
+      }
+      if (isBanned) {
         await ctx.reply('Ваш аккаунт заблокирован. Обратитесь к администратору.');
         return;
       }
+
       const firstVisitAlias = botData.interface?.defaultFirstVisitLayout || 'start_first_visit';
       const startAlias = botData.interface?.defaultStartLayout || 'start';
       const layoutAlias = client.total_visit === 1 ? firstVisitAlias : startAlias;
-      log('info', `Выбран alias лейаута: ${layoutAlias}`, payload);
+      log('info', `Selected layout alias: ${layoutAlias}`, payload);
       const layoutBlock = findLayoutBlock(botData.interface?.blocks || [], layoutAlias);
       if (!layoutBlock) {
-        await ctx.reply(`Требуется настройка интерфейса: лейаут с alias "${layoutAlias}" не найден`);
+        await ctx.reply(`Interface configuration required: layout with alias "${layoutAlias}" not found`);
         return;
       }
       await sendLayoutBlock(ctx, layoutBlock);
@@ -153,21 +172,21 @@ async function initSingleBot(payload: Payload, botData: any) {
     for (const cmd of commands) {
       if (cmd.command !== '/start') {
         bot.command(cmd.command.replace('/', ''), async (ctx) => {
-          log('info', `Выполнение команды ${cmd.command}`, payload);
+          log('info', `Executing command ${cmd.command}`, payload);
           await ctx.reply(cmd.responseText);
         });
       }
     }
 
     bot.start();
-    log('info', `🤖 Бот "${botData.name}" успешно запущен.`, payload);
+    log('info', `🤖 Bot "${botData.name}" started successfully.`, payload);
 
     if (botData.description) {
       try {
         await bot.api.setMyDescription(botData.description || '');
-        log('info', `Описание бота обновлено: ${botData.description}`, payload);
+        log('info', `Bot description updated: ${botData.description}`, payload);
       } catch (error: any) {
-        log('error', `Ошибка обновления описания бота: ${error.message}`, payload);
+        log('error', `Error updating bot description: ${error.message}`, payload);
       }
     }
 
@@ -180,7 +199,7 @@ async function initSingleBot(payload: Payload, botData: any) {
       },
     });
   } catch (error: any) {
-    log('error', `Ошибка инициализации бота "${botData.name}": ${error.message}`, payload);
+    log('error', `Error initializing bot "${botData.name}": ${error.message}`, payload);
     await payload.update({
       collection: 'bots',
       id: botData.id,
@@ -221,7 +240,7 @@ async function sendLayoutBlock(ctx: BotContext, layoutBlock: any) {
         try {
           await ctx.api.deleteMessage(ctx.chat.id, msgId);
         } catch (err) {
-          log('error', `Ошибка при удалении сообщения ${msgId}: ${err}`, undefined);
+          log('error', `Error deleting message ${msgId}: ${err}`, undefined);
         }
       }
       ctx.session.previousMessages = [];
@@ -229,7 +248,7 @@ async function sendLayoutBlock(ctx: BotContext, layoutBlock: any) {
   }
 
   if (!Array.isArray(layoutBlock.blocks) || layoutBlock.blocks.length === 0) {
-    const msg = await ctx.reply(`Лейаут "${layoutBlock.name}" пуст. Настройте блоки.`);
+    const msg = await ctx.reply(`Layout "${layoutBlock.name}" is empty. Please configure the blocks.`);
     storeMessageId(ctx, msg.message_id);
     return;
   }
@@ -246,13 +265,13 @@ async function sendLayoutBlock(ctx: BotContext, layoutBlock: any) {
         break;
       case 'LayoutBlock':
       case 'layout-blocks':
-        log('debug', 'Вложенный LayoutBlock обнаружен, пропускаем его.', undefined);
+        log('debug', 'Nested LayoutBlock detected, skipping it.', undefined);
         break;
       case 'CommandBlock':
       case 'command-blocks':
         break;
       default: {
-        const msg = await ctx.reply(`Неизвестный тип блока: ${block.blockType}`);
+        const msg = await ctx.reply(`Unknown block type: ${block.blockType}`);
         storeMessageId(ctx, msg.message_id);
       }
     }
@@ -275,7 +294,7 @@ async function handleMessageBlock(ctx: BotContext, blockData: any) {
 async function handleButtonBlock(ctx: BotContext, blockData: any) {
   if (!ctx.chat) return;
   if (!Array.isArray(blockData.buttons) || blockData.buttons.length === 0) {
-    const msg = await ctx.reply('ButtonBlock не содержит кнопок.');
+    const msg = await ctx.reply('ButtonBlock does not contain any buttons.');
     storeMessageId(ctx, msg.message_id);
     return;
   }
@@ -298,7 +317,7 @@ async function handleButtonBlock(ctx: BotContext, blockData: any) {
     }
   }
 
-  const msg = await ctx.reply('Выберите вариант:', {
+  const msg = await ctx.reply('Please choose an option:', {
     reply_markup: inlineKeyboard,
   });
   storeMessageId(ctx, msg.message_id);

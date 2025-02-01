@@ -1,13 +1,12 @@
-// Path:
-// Version: 1.0.3
+// Path: src/plugins/TelegramAPI/utils/processClient.ts
+// Version: 1.0.6
 //
 // This utility implements the function processClient which searches for a client by telegram_id.
 // If the client is found, it updates the client data by incrementing total_visit by 1 and
 // adds the current bot to the "bots" field (if it is not already present).
 // When checking the "bots" array, it takes into account that its elements can be objects with an "id" field or simple values.
 // If the client is not found, it creates a new client with total_visit set to 1.
-// This function uses Payload CMS v3 type definitions.
-
+// Default status assignment has been removed – the "status" field will be configured via the admin panel.
 import type { Payload } from 'payload';
 
 export async function processClient(
@@ -31,7 +30,7 @@ export async function processClient(
         if (Array.isArray((existingClient as any).bots)) {
           botsArray = (existingClient as any).bots;
         } else {
-          botsArray = [ (existingClient as any).bots ];
+          botsArray = [(existingClient as any).bots];
         }
       }
       // Check if the current botId is already present in the array.
@@ -59,12 +58,13 @@ export async function processClient(
           last_name: fromData.last_name,
           user_name: fromData.username || 'anonymous_user',
           last_visit: new Date().toISOString(),
-          total_visit: ((existingClient as any).total_visit || 0) + 1,
+          total_visit: (((existingClient as any).total_visit) ?? 0) + 1,
         },
       });
       return updated;
     } else {
-      // If the client is not found, create a new one with total_visit = 1
+      // If the client is not found, create a new one with total_visit = 1.
+      // Note: The "status" field is not set here; it will be configured via the admin panel.
       const created = await payload.create({
         collection: 'clients',
         data: {
@@ -74,7 +74,6 @@ export async function processClient(
           last_name: fromData.last_name,
           user_name: fromData.username || 'anonymous_user',
           total_visit: 1,
-          status: 'new',
           last_visit: new Date().toISOString(),
         },
       });

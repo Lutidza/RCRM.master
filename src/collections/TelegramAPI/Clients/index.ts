@@ -1,89 +1,141 @@
-// Путь: src/collections/TelegramAPI/Clients/index.ts
-// Версия: 3.2.0
+// Path: src/collections/TelegramAPI/Clients/index.ts
+// Version: 3.3.1
 //
-// Коллекция Clients хранит информацию о пользователях Telegram, связанных с ботами.
-// Связь реализована через поле отношения "bots", которое ссылается на коллекцию Bots.
-// Один клиент может быть привязан к нескольким ботам.
+// The Clients collection stores information about Telegram users associated with bots.
+// The relationship is implemented via the "bots" field, which references the Bots collection.
+// A client can be associated with multiple bots.
+// In the admin panel, the client's title is displayed using the computed "display_name" field,
+// which is derived from the "user_name" (prefixed with '@').
+// The default columns in the admin list view are displayed in the following order:
+//   Display Name, Client Status, Telegram ID (number), Associated Bots, Total Visits, Last Visit Date, Created At.
+// The "status" field is now a relationship field referencing dynamic statuses from the "statuses" collection.
+// NOTE: The "status" field is no longer required in API operations (status assignment will be configured manually in the admin panel).
+
 import type { CollectionConfig } from 'payload';
 
 const Clients: CollectionConfig = {
   slug: 'clients',
   admin: {
-    useAsTitle: 'telegram_id',
+    useAsTitle: 'display_name',
+    defaultColumns: [
+      'display_name',
+      'status',
+      'telegram_id',
+      'bots',
+      'total_visit',
+      'last_visit',
+      'createdAt',
+    ],
   },
   fields: [
-    // Telegram ID пользователя (число)
+    // Telegram User ID (number)
     {
       name: 'telegram_id',
       type: 'number',
       required: true,
-      label: 'Telegram ID (число)',
+      label: 'Telegram ID (number)',
     },
-    // Отношение к ботам: массив (hasMany: true)
+    // Relationship to Bots: array (hasMany: true)
     {
       name: 'bots',
       type: 'relationship',
       relationTo: 'bots',
       hasMany: true,
       required: true,
-      label: 'Связанные боты',
+      label: 'Associated Bots',
       admin: {
-        description: 'Выберите ботов из коллекции Bots, с которыми связан данный клиент.',
+        description: 'Select bots from the Bots collection associated with this client.',
       },
     },
-    // Имя пользователя
+    // First Name
     {
       name: 'first_name',
       type: 'text',
-      label: 'Имя',
+      label: 'First Name',
     },
-    // Фамилия пользователя
+    // Last Name
     {
       name: 'last_name',
       type: 'text',
-      label: 'Фамилия',
+      label: 'Last Name',
     },
-    // Никнейм (username)
+    // Username
     {
       name: 'user_name',
       type: 'text',
-      label: 'Никнейм (username)',
+      label: 'Username',
     },
-    // Дата последнего визита
+    // Display Name (computed from user_name)
+    {
+      name: 'display_name',
+      type: 'text',
+      label: 'Display Name',
+      admin: {
+        readOnly: true,
+        description: 'Automatically computed display name in the format "@" + username.',
+      },
+    },
+    // Client Status (dynamic status from the "statuses" collection)
+    // Changed required: true to false, as the status will be configured via the admin panel.
+    {
+      name: 'status',
+      type: 'relationship',
+      relationTo: 'statuses',
+      required: false,
+      label: 'Client Status',
+      admin: {
+        description: 'Select the client status from dynamic statuses.',
+        position: 'sidebar',
+      },
+    },
+    // Last Visit Date (displayed in sidebar)
     {
       name: 'last_visit',
       type: 'date',
-      label: 'Дата последнего визита',
+      label: 'Last Visit Date',
+      admin: {
+        position: 'sidebar',
+      },
     },
-    // Общее количество визитов
+    // Total Visits (displayed in sidebar)
     {
       name: 'total_visit',
       type: 'number',
       defaultValue: 0,
       required: true,
-      label: 'Общее количество посещений',
+      label: 'Total Visits',
       admin: {
         description:
-            'Общее количество посещений этим клиентом. При первом визите устанавливается 1, при повторном – можно увеличить.',
-      },
-    },
-    // Статус клиента (new, active, banned)
-    {
-      name: 'status',
-      type: 'select',
-      options: [
-        { label: 'New', value: 'new' },
-        { label: 'Active', value: 'active' },
-        { label: 'Banned', value: 'banned' },
-      ],
-      defaultValue: 'new',
-      required: true,
-      label: 'Статус клиента',
-      admin: {
-        description: 'Статус клиента. "new" – новый, "active" – активный, "banned" – заблокирован.',
+            'The total number of visits by this client. Set to 1 on the first visit and incremented on subsequent visits.',
+        position: 'sidebar',
       },
     },
   ],
+  hooks: {
+    beforeChange: [
+      ({ data, operation }) => {
+        if (!data) return data;
+        // Compute display_name based on the following logic:
+        // - If user_name exists, display_name = "@" + user_name (if not already prefixed).
+        // - Otherwise, if first_name exists:
+        //     - If last_name exists, display_name = first_name + " " + last_name.
+        //     - Else, display_name = first_name.
+        // - Otherwise, display_name = "Unnamed".
+        if (data.user_name) {
+          data.display_name = data.user_name.startsWith('@')
+              ? data.user_name
+              : `@${data.user_name}`;
+        } else if (data.first_name) {
+          data.display_name = data.last_name
+              ? `${data.first_name} ${data.last_name}`
+              : data.first_name;
+        } else {
+          data.display_name = 'Unnamed';
+        }
+        return data;
+      },
+    ],
+  },
 };
 
 export default Clients;

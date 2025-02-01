@@ -19,6 +19,8 @@ import { getServerSideURL } from './utilities/getURL'
 
 // ===== Импорт плагина TelegramAPI =====
 import TelegramAPIPlugin from './plugins/TelegramAPI'
+import StatusGroups from "@/collections/TelegramAPI/Settings/Statuses/StatusGroups";
+import Statuses from "@/collections/TelegramAPI/Settings/Statuses/Statuses";
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -67,7 +69,7 @@ export default buildConfig({
       connectionString: process.env.DATABASE_URI || '',
     },
   }),
-  collections: [Pages, Posts, Media, Categories, Users, ],
+  collections: [Pages, Posts, Media, Categories, Users, StatusGroups, Statuses],
   cors: [getServerSideURL()].filter(Boolean),
   globals: [Header, Footer],
   plugins: [
