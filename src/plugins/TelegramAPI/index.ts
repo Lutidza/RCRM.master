@@ -1,9 +1,9 @@
 // Путь: src/plugins/TelegramAPI/index.ts
-// Версия: 5.2.1
+// Версия: 5.2.2
 //
 // Этот плагин подключает коллекции Bots и Clients, инициализирует ботов через grammY,
-// регистрирует команды, обрабатывает команду /start, обновляет или создаёт клиента,
-// выбирает лейаут по alias, обновляет описание бота в Telegram (если задано), и осуществляет подробное логирование.
+// регистрирует команды, обрабатывает команду /start, обновляет или создаёт клиента (с использованием утилиты processClient),
+// выбирает лейаут по alias, обновляет описание бота в Telegram (если оно задано), и осуществляет подробное логирование.
 
 import type { Payload, Config, Plugin } from 'payload';
 import {
@@ -16,6 +16,7 @@ import {
 
 import Bots from '@/collections/TelegramAPI/Bots';
 import Clients from '@/collections/TelegramAPI/Clients';
+import { processClient } from '@/plugins/TelegramAPI/utils/ClientUtils/processClient';
 
 interface SessionData {
   previousMessages: number[];
@@ -79,7 +80,6 @@ async function initSingleBot(payload: Payload, botData: any) {
       initial: () => ({ previousMessages: [] }),
     }));
 
-    // Обработчик callback_query с полной логикой для типа "layout"
     bot.on('callback_query:data', async (ctx) => {
       try {
         await ctx.answerCallbackQuery();
@@ -91,7 +91,6 @@ async function initSingleBot(payload: Payload, botData: any) {
           return;
         }
         if (cbType === 'layout') {
-          // Полная логика: ищем лейаут по alias в интерфейсе текущего бота
           const layoutBlock = findLayoutBlock(botData.interface?.blocks || [], cbValue);
           if (layoutBlock) {
             await sendLayoutBlock(ctx, layoutBlock);
@@ -101,11 +100,9 @@ async function initSingleBot(payload: Payload, botData: any) {
         } else if (cbType === 'message') {
           await ctx.reply(cbValue);
         } else if (cbType === 'command') {
-          // Здесь можно вызвать соответствующий обработчик команды
           await ctx.reply(`Команда "${cbValue}" выполнена.`);
         } else if (cbType === 'link') {
-          // Для ссылки обработка происходит на стороне кнопки (InlineKeyboard.url)
-          // Но если что-то требуется, можно добавить дополнительную логику
+          await ctx.answerCallbackQuery();
         } else {
           await ctx.reply('Неизвестный тип кнопки');
         }
@@ -309,71 +306,4 @@ async function handleButtonBlock(ctx: BotContext, blockData: any) {
 
 function storeMessageId(ctx: BotContext, messageId: number) {
   ctx.session.previousMessages.push(messageId);
-}
-
-async function processClient(
-  payload: Payload,
-  telegramId: number,
-  botId: number,
-  fromData: any
-) {
-  try {
-    const { docs } = await payload.find({
-      collection: 'clients',
-      where: { telegram_id: { equals: telegramId } },
-      limit: 1,
-    });
-
-    if (docs && docs.length > 0) {
-      const existingClient = docs[0]!;
-      // Обращаемся к полю связи, используя приведение типа, так как автогенерированные типы могут иметь поле "bot" вместо "bots"
-      let botsArray: number[] = [];
-      if ((existingClient as any).bots) {
-        if (Array.isArray((existingClient as any).bots)) {
-          botsArray = (existingClient as any).bots;
-        } else {
-          botsArray = [(existingClient as any).bots];
-        }
-      }
-      if (!botsArray.includes(botId)) {
-        botsArray.push(botId);
-        await payload.update({
-          collection: 'clients',
-          id: existingClient.id,
-          data: { bots: botsArray } as any,
-        });
-      }
-      const updated = await payload.update({
-        collection: 'clients',
-        id: existingClient.id,
-        data: {
-          first_name: fromData.first_name,
-          last_name: fromData.last_name,
-          user_name: fromData.username || 'anonymous_user',
-          last_visit: new Date().toISOString(),
-        },
-      });
-      log('info', `Клиент обновлён: ${existingClient.id}`, payload);
-      return updated;
-    } else {
-      const created = await payload.create({
-        collection: 'clients',
-        data: {
-          telegram_id: telegramId,
-          bots: [botId] as any,
-          first_name: fromData.first_name,
-          last_name: fromData.last_name,
-          user_name: fromData.username || 'anonymous_user',
-          total_visit: 1,
-          status: 'new',
-          last_visit: new Date().toISOString(),
-        },
-      });
-      log('info', `Новый клиент создан: ${created.id}`, payload);
-      return created;
-    }
-  } catch (error: any) {
-    log('error', `Ошибка processClient(): ${error.message}`, payload);
-    return { status: 'new', total_visit: 1 };
-  }
 }
