@@ -834,26 +834,26 @@ export interface Bot {
   name: string;
   token: string;
   /**
-   * Введите описание бота (например, "CRM Connector Bot для управления заказами").
+   * Enter the bot description (e.g., "CRM Connector Bot for order management").
    */
   description?: string | null;
-  enabled: boolean;
-  initialization_status: 'Not Initialized' | 'Initialized' | 'Error';
-  last_initialized?: string | null;
-  /**
-   * Настройки интерфейса: добавьте блоки (Message, Button, Layout, Command) и укажите дефолтные alias для лейаутов, например, "start" и "start_first_visit".
-   */
   interface: {
     blocks?: (MessageBlock | ButtonBlock | LayoutBlock | CommandBlock)[] | null;
     /**
-     * Alias лейаута для повторного визита. Пример: "start".
+     * Alias for the layout used for returning users. Example: "start".
      */
     defaultStartLayout: string;
     /**
-     * Alias лейаута для первого визита. Пример: "start_first_visit".
+     * Alias for the layout used for new users. Example: "start_first_visit".
      */
     defaultFirstVisitLayout: string;
   };
+  /**
+   * Select whether the bot is enabled or disabled.
+   */
+  enabled: 'enabled' | 'disabled';
+  initialization_status: 'Not Initialized' | 'Initialized' | 'Error';
+  last_initialized?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -1707,9 +1707,6 @@ export interface BotsSelect<T extends boolean = true> {
   name?: T;
   token?: T;
   description?: T;
-  enabled?: T;
-  initialization_status?: T;
-  last_initialized?: T;
   interface?:
     | T
     | {
@@ -1724,6 +1721,9 @@ export interface BotsSelect<T extends boolean = true> {
         defaultStartLayout?: T;
         defaultFirstVisitLayout?: T;
       };
+  enabled?: T;
+  initialization_status?: T;
+  last_initialized?: T;
   updatedAt?: T;
   createdAt?: T;
 }

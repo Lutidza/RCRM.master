@@ -1,5 +1,5 @@
-// Path: src/plugins/TelegramAPI/index.ts
-// Version: 5.2.4
+// File: src/plugins/TelegramAPI/index.ts
+// Version: 5.2.9
 //
 // This plugin connects the Bots and Clients collections, initializes bots using grammY,
 // registers commands, processes the /start command, updates or creates a client (using the processClient utility),
@@ -19,6 +19,7 @@ import {
 import Bots from '@/collections/TelegramAPI/Bots';
 import Clients from '@/collections/TelegramAPI/Clients';
 import { processClient } from '@/plugins/TelegramAPI/utils/ClientUtils/processClient';
+import { processMessageBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/MessageBlock';
 
 interface SessionData {
   previousMessages: number[];
@@ -54,9 +55,10 @@ export default TelegramAPIPlugin;
 async function initializeBots(payload: Payload) {
   try {
     log('info', 'Searching for all enabled bots...', payload);
+    // Query bots where the 'enabled' field equals "enabled" (select field with string values)
     const { docs: bots } = await payload.find({
       collection: 'bots',
-      where: { enabled: { equals: true } },
+      where: { enabled: { equals: 'enabled' } },
       limit: 999,
     });
     log('info', `Found ${bots.length} bots for initialization.`, payload);
@@ -235,7 +237,9 @@ function findLayoutBlock(blocks: any[], layoutAlias: string): any | null {
 
 async function sendLayoutBlock(ctx: BotContext, layoutBlock: any) {
   if (layoutBlock.clearPreviousMessages) {
+    // Do not delete the triggering command message (e.g., /start); only delete all previously sent bot messages.
     if (ctx.chat) {
+      // Iterate over all stored message IDs and delete them.
       for (const msgId of ctx.session.previousMessages) {
         try {
           await ctx.api.deleteMessage(ctx.chat.id, msgId);
@@ -243,6 +247,7 @@ async function sendLayoutBlock(ctx: BotContext, layoutBlock: any) {
           log('error', `Error deleting message ${msgId}: ${err}`, undefined);
         }
       }
+      // Clear the session array to remove all stored message IDs.
       ctx.session.previousMessages = [];
     }
   }
@@ -257,7 +262,8 @@ async function sendLayoutBlock(ctx: BotContext, layoutBlock: any) {
     switch (block.blockType) {
       case 'MessageBlock':
       case 'message-blocks':
-        await handleMessageBlock(ctx, block);
+        // Use the external MessageBlock handler utility for HTML formatting.
+        await processMessageBlock(ctx, block);
         break;
       case 'ButtonBlock':
       case 'button-blocks':
@@ -275,19 +281,6 @@ async function sendLayoutBlock(ctx: BotContext, layoutBlock: any) {
         storeMessageId(ctx, msg.message_id);
       }
     }
-  }
-}
-
-async function handleMessageBlock(ctx: BotContext, blockData: any) {
-  if (!ctx.chat) return;
-  if (blockData.media?.url) {
-    const msg = await ctx.replyWithPhoto(blockData.media.url, {
-      caption: blockData.text || '',
-    });
-    storeMessageId(ctx, msg.message_id);
-  } else {
-    const msg = await ctx.reply(blockData.text);
-    storeMessageId(ctx, msg.message_id);
   }
 }
 
