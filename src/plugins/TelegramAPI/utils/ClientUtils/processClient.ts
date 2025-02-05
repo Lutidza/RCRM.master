@@ -1,12 +1,10 @@
 // Path: src/plugins/TelegramAPI/utils/processClient.ts
-// Version: 1.0.6
+// Version: 1.1.1
 //
-// This utility implements the function processClient which searches for a client by telegram_id.
-// If the client is found, it updates the client data by incrementing total_visit by 1 and
-// adds the current bot to the "bots" field (if it is not already present).
-// When checking the "bots" array, it takes into account that its elements can be objects with an "id" field or simple values.
-// If the client is not found, it creates a new client with total_visit set to 1.
-// Default status assignment has been removed – the "status" field will be configured via the admin panel.
+// This utility processes clients in the "clients" collection. It searches for a client by `telegram_id`.
+// If the client exists, it updates the data (increments `total_visit`, adds a bot if missing).
+// If the client does not exist, it creates a new record and assigns default properties.
+
 import type { Payload } from 'payload';
 
 export async function processClient(
@@ -16,70 +14,70 @@ export async function processClient(
   fromData: any
 ): Promise<any> {
   try {
+    console.log(`[processClient] Searching for client with telegram_id=${telegramId} and bot=${botId}`);
+
+    // Find existing client
     const { docs } = await payload.find({
       collection: 'clients',
       where: { telegram_id: { equals: telegramId } },
       limit: 1,
     });
 
-    if (docs && docs.length > 0) {
-      const existingClient = docs[0]!; // client found
-      let botsArray: any[] = [];
-      // Retrieve the value of the "bots" field
-      if ((existingClient as any).bots) {
-        if (Array.isArray((existingClient as any).bots)) {
-          botsArray = (existingClient as any).bots;
-        } else {
-          botsArray = [(existingClient as any).bots];
-        }
-      }
-      // Check if the current botId is already present in the array.
-      // If an element is an object, compare its "id" property.
-      const botAlreadyAdded = botsArray.some((b: any) => {
-        if (typeof b === 'object' && b !== null && 'id' in b) {
-          return b.id.toString() === botId.toString();
-        }
-        return b.toString() === botId.toString();
-      });
-      if (!botAlreadyAdded) {
-        botsArray.push(botId);
-        await payload.update({
-          collection: 'clients',
-          id: existingClient.id,
-          data: { bots: botsArray } as any,
-        });
-      }
-      // Increment total_visit by 1 on every /start call
-      const updated = await payload.update({
-        collection: 'clients',
-        id: existingClient.id,
-        data: {
-          first_name: fromData.first_name,
-          last_name: fromData.last_name,
-          user_name: fromData.username || 'anonymous_user',
-          last_visit: new Date().toISOString(),
-          total_visit: (((existingClient as any).total_visit) ?? 0) + 1,
-        },
-      });
-      return updated;
-    } else {
-      // If the client is not found, create a new one with total_visit = 1.
-      // Note: The "status" field is not set here; it will be configured via the admin panel.
-      const created = await payload.create({
+    // Fix: Проверка, что `docs` содержит хотя бы один элемент
+    if (!docs || docs.length === 0) {
+      console.log("[processClient] No existing client found, creating a new one...");
+
+      return await payload.create({
         collection: 'clients',
         data: {
           telegram_id: telegramId,
-          bots: [botId] as any,
-          first_name: fromData.first_name,
-          last_name: fromData.last_name,
+          bots: [botId],
+          first_name: fromData.first_name ?? "",
+          last_name: fromData.last_name ?? "",
           user_name: fromData.username || 'anonymous_user',
           total_visit: 1,
           last_visit: new Date().toISOString(),
+          enabled: "enabled", // Ensures compatibility with Payload CMS
         },
       });
-      return created;
     }
+
+    // Fix: Теперь `docs[0]` гарантированно существует
+    const existingClient = docs[0];
+
+    if (!existingClient) {
+      console.log("[processClient] Unexpected: existingClient is undefined.");
+      return;
+    }
+
+    console.log(`[processClient] Client found: ID=${existingClient.id}`);
+
+    // Extract and normalize bots array
+    let botsArray: any[] = Array.isArray(existingClient.bots)
+      ? existingClient.bots
+      : existingClient.bots ? [existingClient.bots] : [];
+
+    // Add botId if it's not already in the list
+    if (!botsArray.some(b => (typeof b === 'object' ? b.id.toString() === botId.toString() : b.toString() === botId.toString()))) {
+      botsArray.push(botId);
+      console.log(`[processClient] Bot ${botId} added to client ${existingClient.id}`);
+    }
+
+    // Update client data
+    return await payload.update({
+      collection: 'clients',
+      id: existingClient.id,
+      data: {
+        bots: botsArray,
+        first_name: fromData.first_name ?? existingClient.first_name ?? "",
+        last_name: fromData.last_name ?? existingClient.last_name ?? "",
+        user_name: fromData.username || existingClient.user_name || 'anonymous_user',
+        last_visit: new Date().toISOString(),
+        total_visit: (existingClient.total_visit ?? 0) + 1,
+      },
+    });
   } catch (error: any) {
-    return { status: 'new', total_visit: 1 };
+    console.error("[processClient] Error processing client:", error);
+    return { total_visit: 1 };
   }
 }

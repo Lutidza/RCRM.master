@@ -758,10 +758,6 @@ export interface Status {
    */
   description?: string | null;
   /**
-   * Optional HEX code for the status color.
-   */
-  color?: string | null;
-  /**
    * Mark this status as the default for its status group (optional).
    */
   setAsDefault?: boolean | null;
@@ -1084,12 +1080,13 @@ export interface Client {
    */
   display_name?: string | null;
   /**
-   * Select the client status from dynamic statuses.
+   * Specify whether this status is active or not.
    */
-  status: {
-    relationTo: 'statuses';
-    value: number | Status;
-  };
+  enabled: 'enabled' | 'disabled';
+  /**
+   * Select a status from the available options. If none is selected, the default status will be automatically assigned.
+   */
+  status?: (number | null) | Status;
   last_visit?: string | null;
   /**
    * The total number of visits by this client. Set to 1 on the first visit and incremented on subsequent visits.
@@ -1714,7 +1711,6 @@ export interface StatusesSelect<T extends boolean = true> {
   label?: T;
   statusGroup?: T;
   description?: T;
-  color?: T;
   setAsDefault?: T;
   enabled?: T;
   updatedAt?: T;
@@ -2128,6 +2124,7 @@ export interface ClientsSelect<T extends boolean = true> {
   last_name?: T;
   user_name?: T;
   display_name?: T;
+  enabled?: T;
   status?: T;
   last_visit?: T;
   total_visit?: T;

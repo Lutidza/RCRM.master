@@ -12,6 +12,9 @@
 // NOTE: The "status" field is no longer required in API operations (status assignment will be configured manually in the admin panel).
 
 import type { CollectionConfig } from 'payload';
+import { getStatusField } from '@/fields/TelegramAPI/getStatusField';
+import  enabledField  from "@/fields/TelegramAPI/enabledFiled/index";
+
 
 const Clients: CollectionConfig = {
   slug: 'clients',
@@ -77,41 +80,9 @@ const Clients: CollectionConfig = {
         description: 'Automatically computed display name in the format "@" + username.',
       },
     },
-    // Client Status (dynamic status from the "statuses" collection)
-    // Changed required: true to false, as the status will be configured via the admin panel.
-    {
-      name: 'status',
-      type: 'relationship',
-      relationTo: ['statuses'],
-      required: true,
+    enabledField,
+    getStatusField('clients'), // Pass the current collection's slug explicitly.
 
-      filterOptions: async ({ req }) => {
-        // Fetch active status groups linked to Clients
-        const activeGroups = await req.payload.find({
-          collection: 'status-groups',
-          where: {
-            linkedCollections: { contains: 'clients' },
-          },
-        });
-
-        const groupIds = activeGroups.docs.map((group) => group.id);
-
-        if (!groupIds.length) return false; // If no active groups, disable the field
-
-        // Fetch active statuses within the groups
-        return {
-          statusGroup: { in: groupIds },
-
-        };
-      },
-
-
-      label: 'Client Status',
-      admin: {
-        description: 'Select the client status from dynamic statuses.',
-        position: 'sidebar',
-      },
-    },
     // Last Visit Date (displayed in sidebar)
     {
       name: 'last_visit',
@@ -136,8 +107,10 @@ const Clients: CollectionConfig = {
     },
   ],
   hooks: {
+
     beforeChange: [
       ({ data, operation }) => {
+        console.dir()
         if (!data) return data;
         // Compute display_name based on the following logic:
         // - If user_name exists, display_name = "@" + user_name (if not already prefixed).

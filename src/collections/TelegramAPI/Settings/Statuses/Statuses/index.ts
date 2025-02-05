@@ -7,7 +7,7 @@
 // The statusGroup field links this status to a status group from the "status-groups" collection.
 
 import type { CollectionConfig } from 'payload';
-import { enabledField } from "@/fields/TelegramAPI/enabledFiled";
+import  enabledField  from "@/fields/TelegramAPI/enabledFiled/index";
 
 const Statuses: CollectionConfig = {
   slug: 'statuses',
@@ -66,20 +66,6 @@ const Statuses: CollectionConfig = {
         description: 'Optional description for the status.',
       },
     },
-    // Activity flag: Enabled or Disabled
-
-
-    // Color for the status label (HEX code)
-    {
-      name: 'color',
-      type: 'text',
-      required: false,
-      defaultValue: '#8002ad',
-      label: 'Color',
-      admin: {
-        description: 'Optional HEX code for the status color.',
-      },
-    },
     // Set as Default: Marks this status as the default for its group (optional)
     {
       name: 'setAsDefault',
@@ -96,7 +82,6 @@ const Statuses: CollectionConfig = {
     beforeValidate: [
       async ({ data, originalDoc, req }) => {
         if (!data || !data.statusGroup) return data;
-
         // Validate alias uniqueness within the group
         if (data.alias) {
           const existingAlias = await req.payload.find({
