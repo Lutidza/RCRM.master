@@ -18,6 +18,13 @@ export interface Config {
     users: User;
     'status-groups': StatusGroup;
     statuses: Status;
+    locations: Location;
+    'product-categories': ProductCategory;
+    products: Product;
+    offers: Offer;
+    discounts: Discount;
+    'label-groups': LabelGroup;
+    labels: Label;
     redirects: Redirect;
     forms: Form;
     'form-submissions': FormSubmission;
@@ -33,6 +40,12 @@ export interface Config {
     'status-groups': {
       linkedStatuses: 'statuses';
     };
+    products: {
+      offers: 'offers';
+    };
+    'label-groups': {
+      linkedLabels: 'labels';
+    };
   };
   collectionsSelect: {
     pages: PagesSelect<false> | PagesSelect<true>;
@@ -42,6 +55,13 @@ export interface Config {
     users: UsersSelect<false> | UsersSelect<true>;
     'status-groups': StatusGroupsSelect<false> | StatusGroupsSelect<true>;
     statuses: StatusesSelect<false> | StatusesSelect<true>;
+    locations: LocationsSelect<false> | LocationsSelect<true>;
+    'product-categories': ProductCategoriesSelect<false> | ProductCategoriesSelect<true>;
+    products: ProductsSelect<false> | ProductsSelect<true>;
+    offers: OffersSelect<false> | OffersSelect<true>;
+    discounts: DiscountsSelect<false> | DiscountsSelect<true>;
+    'label-groups': LabelGroupsSelect<false> | LabelGroupsSelect<true>;
+    labels: LabelsSelect<false> | LabelsSelect<true>;
     redirects: RedirectsSelect<false> | RedirectsSelect<true>;
     forms: FormsSelect<false> | FormsSelect<true>;
     'form-submissions': FormSubmissionsSelect<false> | FormSubmissionsSelect<true>;
@@ -697,13 +717,13 @@ export interface StatusGroup {
    */
   alias: string;
   /**
-   * Specify whether this status group is active or not.
+   * Select whether the document is enabled or disabled.
    */
-  isActive: 'enabled' | 'disabled';
+  enabled: 'enabled' | 'disabled';
   /**
    * Collections where this status group is applicable.
    */
-  linkedCollections?: ('products' | 'offers' | 'orders' | 'clients' | 'bots' | 'cities' | 'districts')[] | null;
+  linkedCollections?: ('products' | 'offers' | 'orders' | 'clients' | 'bots' | 'discounts')[] | null;
   linkedStatuses?: {
     docs?: (number | Status)[] | null;
     hasNextPage?: boolean | null;
@@ -738,10 +758,6 @@ export interface Status {
    */
   description?: string | null;
   /**
-   * Specify whether this status is active or not.
-   */
-  isActive: 'enabled' | 'disabled';
-  /**
    * Optional HEX code for the status color.
    */
   color?: string | null;
@@ -749,79 +765,25 @@ export interface Status {
    * Mark this status as the default for its status group (optional).
    */
   setAsDefault?: boolean | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "redirects".
- */
-export interface Redirect {
-  id: number;
   /**
-   * You will need to rebuild the website when changing this field.
+   * Specify whether this status is active or not.
    */
-  from: string;
-  to?: {
-    type?: ('reference' | 'custom') | null;
-    reference?:
-      | ({
-          relationTo: 'pages';
-          value: number | Page;
-        } | null)
-      | ({
-          relationTo: 'posts';
-          value: number | Post;
-        } | null);
-    url?: string | null;
-  };
+  enabled: 'enabled' | 'disabled';
   updatedAt: string;
   createdAt: string;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "form-submissions".
+ * via the `definition` "locations".
  */
-export interface FormSubmission {
+export interface Location {
   id: number;
-  form: number | Form;
-  submissionData?:
-    | {
-        field: string;
-        value: string;
-        id?: string | null;
-      }[]
-    | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This is a collection of automatically created search results. These results are used by the global site search and will be updated automatically as documents in the CMS are created or updated.
- *
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "search".
- */
-export interface Search {
-  id: number;
-  title?: string | null;
-  priority?: number | null;
-  doc: {
-    relationTo: 'posts';
-    value: number | Post;
-  };
-  slug?: string | null;
-  meta?: {
-    title?: string | null;
-    description?: string | null;
-    image?: (number | null) | Media;
-  };
-  categories?:
-    | {
-        relationTo?: string | null;
-        id?: string | null;
-        title?: string | null;
-      }[]
-    | null;
+  name: string;
+  alias: string;
+  parent_id?: (number | null) | Location;
+  description?: string | null;
+  Enabled: 'enabled' | 'disabled';
+  linked_bots?: (number | Bot)[] | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -960,6 +922,151 @@ export interface CommandBlock {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-categories".
+ */
+export interface ProductCategory {
+  id: number;
+  name: string;
+  alias: string;
+  parent_id?: (number | null) | ProductCategory;
+  description?: string | null;
+  media?: (number | null) | Media;
+  linked_bots?: (number | Bot)[] | null;
+  Enabled: 'enabled' | 'disabled';
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "products".
+ */
+export interface Product {
+  id: number;
+  name: string;
+  description?: string | null;
+  images?: (number | Media)[] | null;
+  size: number;
+  deal_type: 'in_stock' | 'pre_order';
+  price: number;
+  discount?: (number | null) | Discount;
+  category_ids: (number | ProductCategory)[];
+  labels_ids?: (number | Label)[] | null;
+  status?: (number | null) | Status;
+  offers?: {
+    docs?: (number | Offer)[] | null;
+    hasNextPage?: boolean | null;
+  } | null;
+  enabled: 'enabled' | 'disabled';
+  offers_quantity: number;
+  locations_ids?: (number | Location)[] | null;
+  owner?: (number | null) | User;
+  orders_count?: number | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "discounts".
+ */
+export interface Discount {
+  id: number;
+  discount_name: string;
+  description?: string | null;
+  discount_percentage: number;
+  discount_fixed_amount?: number | null;
+  start_date: string;
+  end_date: string;
+  applies_to_products?: (number | Product)[] | null;
+  status: 'active' | 'inactive';
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "labels".
+ */
+export interface Label {
+  id: number;
+  /**
+   * A unique alias for the label.
+   */
+  alias: string;
+  /**
+   * A unique name for the label.
+   */
+  label: string;
+  /**
+   * The group this label belongs to.
+   */
+  labelGroup: number | LabelGroup;
+  /**
+   * Optional description for the label.
+   */
+  description?: string | null;
+  enabled: 'enabled' | 'disabled';
+  /**
+   * Optional HEX code for the label color.
+   */
+  color?: string | null;
+  /**
+   * Mark this label as the default for its label group (optional).
+   */
+  setAsDefault?: boolean | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "label-groups".
+ */
+export interface LabelGroup {
+  id: number;
+  /**
+   * The name of the label group displayed in the admin panel.
+   */
+  name: string;
+  /**
+   * A unique alias for the label group used internally.
+   */
+  alias: string;
+  enabled: 'enabled' | 'disabled';
+  /**
+   * Collections where this label group is applicable.
+   */
+  linkedCollections?: ('products' | 'offers' | 'orders' | 'clients' | 'bots' | 'discounts')[] | null;
+  linkedLabels?: {
+    docs?: (number | Label)[] | null;
+    hasNextPage?: boolean | null;
+  } | null;
+  /**
+   * Additional information about the label group.
+   */
+  description?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "offers".
+ */
+export interface Offer {
+  id: number;
+  media: (number | Media)[];
+  location: number | Location;
+  latitude: string;
+  longitude: string;
+  name?: string | null;
+  description?: string | null;
+  product: number | Product;
+  client?: (number | null) | Client;
+  executor?: (number | null) | Client;
+  status?: (number | null) | Status;
+  enabled: 'enabled' | 'disabled';
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "clients".
  */
 export interface Client {
@@ -979,12 +1086,88 @@ export interface Client {
   /**
    * Select the client status from dynamic statuses.
    */
-  status?: (number | null) | Status;
+  status: {
+    relationTo: 'statuses';
+    value: number | Status;
+  };
   last_visit?: string | null;
   /**
    * The total number of visits by this client. Set to 1 on the first visit and incremented on subsequent visits.
    */
   total_visit: number;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "redirects".
+ */
+export interface Redirect {
+  id: number;
+  /**
+   * You will need to rebuild the website when changing this field.
+   */
+  from: string;
+  to?: {
+    type?: ('reference' | 'custom') | null;
+    reference?:
+      | ({
+          relationTo: 'pages';
+          value: number | Page;
+        } | null)
+      | ({
+          relationTo: 'posts';
+          value: number | Post;
+        } | null);
+    url?: string | null;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "form-submissions".
+ */
+export interface FormSubmission {
+  id: number;
+  form: number | Form;
+  submissionData?:
+    | {
+        field: string;
+        value: string;
+        id?: string | null;
+      }[]
+    | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This is a collection of automatically created search results. These results are used by the global site search and will be updated automatically as documents in the CMS are created or updated.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "search".
+ */
+export interface Search {
+  id: number;
+  title?: string | null;
+  priority?: number | null;
+  doc: {
+    relationTo: 'posts';
+    value: number | Post;
+  };
+  slug?: string | null;
+  meta?: {
+    title?: string | null;
+    description?: string | null;
+    image?: (number | null) | Media;
+  };
+  categories?:
+    | {
+        relationTo?: string | null;
+        id?: string | null;
+        title?: string | null;
+      }[]
+    | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -1114,6 +1297,34 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'statuses';
         value: number | Status;
+      } | null)
+    | ({
+        relationTo: 'locations';
+        value: number | Location;
+      } | null)
+    | ({
+        relationTo: 'product-categories';
+        value: number | ProductCategory;
+      } | null)
+    | ({
+        relationTo: 'products';
+        value: number | Product;
+      } | null)
+    | ({
+        relationTo: 'offers';
+        value: number | Offer;
+      } | null)
+    | ({
+        relationTo: 'discounts';
+        value: number | Discount;
+      } | null)
+    | ({
+        relationTo: 'label-groups';
+        value: number | LabelGroup;
+      } | null)
+    | ({
+        relationTo: 'labels';
+        value: number | Label;
       } | null)
     | ({
         relationTo: 'redirects';
@@ -1487,7 +1698,7 @@ export interface UsersSelect<T extends boolean = true> {
 export interface StatusGroupsSelect<T extends boolean = true> {
   name?: T;
   alias?: T;
-  isActive?: T;
+  enabled?: T;
   linkedCollections?: T;
   linkedStatuses?: T;
   description?: T;
@@ -1503,7 +1714,124 @@ export interface StatusesSelect<T extends boolean = true> {
   label?: T;
   statusGroup?: T;
   description?: T;
-  isActive?: T;
+  color?: T;
+  setAsDefault?: T;
+  enabled?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "locations_select".
+ */
+export interface LocationsSelect<T extends boolean = true> {
+  name?: T;
+  alias?: T;
+  parent_id?: T;
+  description?: T;
+  Enabled?: T;
+  linked_bots?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-categories_select".
+ */
+export interface ProductCategoriesSelect<T extends boolean = true> {
+  name?: T;
+  alias?: T;
+  parent_id?: T;
+  description?: T;
+  media?: T;
+  linked_bots?: T;
+  Enabled?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "products_select".
+ */
+export interface ProductsSelect<T extends boolean = true> {
+  name?: T;
+  description?: T;
+  images?: T;
+  size?: T;
+  deal_type?: T;
+  price?: T;
+  discount?: T;
+  category_ids?: T;
+  labels_ids?: T;
+  status?: T;
+  offers?: T;
+  enabled?: T;
+  offers_quantity?: T;
+  locations_ids?: T;
+  owner?: T;
+  orders_count?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "offers_select".
+ */
+export interface OffersSelect<T extends boolean = true> {
+  media?: T;
+  location?: T;
+  latitude?: T;
+  longitude?: T;
+  name?: T;
+  description?: T;
+  product?: T;
+  client?: T;
+  executor?: T;
+  status?: T;
+  enabled?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "discounts_select".
+ */
+export interface DiscountsSelect<T extends boolean = true> {
+  discount_name?: T;
+  description?: T;
+  discount_percentage?: T;
+  discount_fixed_amount?: T;
+  start_date?: T;
+  end_date?: T;
+  applies_to_products?: T;
+  status?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "label-groups_select".
+ */
+export interface LabelGroupsSelect<T extends boolean = true> {
+  name?: T;
+  alias?: T;
+  enabled?: T;
+  linkedCollections?: T;
+  linkedLabels?: T;
+  description?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "labels_select".
+ */
+export interface LabelsSelect<T extends boolean = true> {
+  alias?: T;
+  label?: T;
+  labelGroup?: T;
+  description?: T;
+  enabled?: T;
   color?: T;
   setAsDefault?: T;
   updatedAt?: T;

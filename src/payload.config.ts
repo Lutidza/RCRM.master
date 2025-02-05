@@ -21,6 +21,13 @@ import { getServerSideURL } from './utilities/getURL'
 import TelegramAPIPlugin from './plugins/TelegramAPI'
 import StatusGroups from "@/collections/TelegramAPI/Settings/Statuses/StatusGroups";
 import Statuses from "@/collections/TelegramAPI/Settings/Statuses/Statuses";
+import { Locations } from "@/collections/TelegramAPI/Locations";
+import { ProductCategories } from "@/collections/TelegramAPI/Products/ProductCategories";
+import { Products } from "@/collections/TelegramAPI/Products/Products";
+import { Offers } from "@/collections/TelegramAPI/Products/Offers";
+import { Discounts } from "@/collections/TelegramAPI/Products/Discounts";
+import LabelGroups from "@/collections/TelegramAPI/Settings/Labels/LabelsGroups";
+import Labels from "@/collections/TelegramAPI/Settings/Labels/Labels";
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -69,7 +76,7 @@ export default buildConfig({
       connectionString: process.env.DATABASE_URI || '',
     },
   }),
-  collections: [Pages, Posts, Media, Categories, Users, StatusGroups, Statuses],
+  collections: [Pages, Posts, Media, Categories, Users, StatusGroups, Statuses, Locations, ProductCategories, Products, Offers, Discounts, LabelGroups, Labels],
   cors: [getServerSideURL()].filter(Boolean),
   globals: [Header, Footer],
   plugins: [

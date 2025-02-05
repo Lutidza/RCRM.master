@@ -23,6 +23,7 @@ const Bots: CollectionConfig = {
   slug: 'bots',
   admin: {
     useAsTitle: 'name',
+    group: 'BOTS MANAGEMENT',
   },
   fields: [
     {

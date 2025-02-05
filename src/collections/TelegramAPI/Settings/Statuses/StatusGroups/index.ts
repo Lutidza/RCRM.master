@@ -10,10 +10,15 @@ import type { CollectionConfig } from 'payload';
 
 const StatusGroups: CollectionConfig = {
   slug: 'status-groups',
+  defaultPopulate: {
+    name: true,
+    alias: true,
+    linkedCollections: true,
+  },
   admin: {
     useAsTitle: 'name',
     group: 'SETTINGS',
-    defaultColumns: ['name', 'alias', 'isActive'],
+    defaultColumns: ['name', 'alias', 'linkedCollections', 'enabled'],
   },
   fields: [
     // Group Name (displayed in the admin panel)
@@ -37,9 +42,9 @@ const StatusGroups: CollectionConfig = {
         description: 'A unique alias for the status group used internally.',
       },
     },
-    // Activity status for the group
+    // Enabled status for the group
     {
-      name: 'isActive',
+      name: 'enabled',
       type: 'select',
       required: true,
       defaultValue: 'enabled',
@@ -47,9 +52,9 @@ const StatusGroups: CollectionConfig = {
         { label: 'Enabled', value: 'enabled' },
         { label: 'Disabled', value: 'disabled' },
       ],
-      label: 'Activity Status',
+      label: 'Enabled',
       admin: {
-        description: 'Specify whether this status group is active or not.',
+        description: 'Select whether the document is enabled or disabled.',
         position: 'sidebar',
       },
     },
@@ -65,8 +70,7 @@ const StatusGroups: CollectionConfig = {
         { label: 'Orders', value: 'orders' },
         { label: 'Clients', value: 'clients' },
         { label: 'Bots', value: 'bots' },
-        { label: 'Cities', value: 'cities' },
-        { label: 'Districts', value: 'districts' },
+        { label: 'Discounts', value: 'discounts' },
       ],
       admin: {
         description: 'Collections where this status group is applicable.',
@@ -83,7 +87,7 @@ const StatusGroups: CollectionConfig = {
       hasMany: true,
       label: 'Linked Statuses',
       admin: {
-        defaultColumns: ['label', 'alias'],
+        defaultColumns: ['label', 'alias', 'enabled', 'setAsDefault'],
         allowCreate: true,
       },
     },
@@ -98,6 +102,16 @@ const StatusGroups: CollectionConfig = {
       },
     },
   ],
+  // hooks: {
+  //   beforeRead: [
+  //     async ({ doc }) => {
+  //       // Получаем список слагов всех зарегистрированных коллекций
+  //
+  //       console.log('Зарегистрированные коллекции:', doc);
+  //       return;
+  //     },
+  //   ],
+  // },
 };
 
 export default StatusGroups;

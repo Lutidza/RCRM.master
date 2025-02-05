@@ -7,12 +7,20 @@
 // The statusGroup field links this status to a status group from the "status-groups" collection.
 
 import type { CollectionConfig } from 'payload';
+import { enabledField } from "@/fields/TelegramAPI/enabledFiled";
 
 const Statuses: CollectionConfig = {
   slug: 'statuses',
   admin: {
     useAsTitle: 'label',
     group: 'SETTINGS',
+  },
+  defaultPopulate: {
+    statusGroup: {
+      id: true,
+      linkedCollections: true, // выбираем поле linkedCollections из группы
+      name: true,
+    },
   },
   fields: [
     // Unique alias for the status
@@ -45,21 +53,9 @@ const Statuses: CollectionConfig = {
       admin: {
         description: 'The group this status belongs to.',
       },
-      filterOptions: async ({ req }) => {
-        const activeGroups = await req.payload.find({
-          collection: 'status-groups',
-          where: {
-            isActive: { equals: 'enabled' },
-          },
-        });
-        if (!activeGroups.docs.length) return false;
-        return {
-          id: {
-            in: activeGroups.docs.map((group: any) => group.id),
-          },
-        };
-      },
+
     },
+
     // Optional description for the status
     {
       name: 'description',
@@ -71,21 +67,8 @@ const Statuses: CollectionConfig = {
       },
     },
     // Activity flag: Enabled or Disabled
-    {
-      name: 'isActive',
-      type: 'select',
-      required: true,
-      defaultValue: 'enabled',
-      options: [
-        { label: 'Enabled', value: 'enabled' },
-        { label: 'Disabled', value: 'disabled' },
-      ],
-      label: 'Activity Status',
-      admin: {
-        description: 'Specify whether this status is active or not.',
-        position: 'sidebar',
-      },
-    },
+
+
     // Color for the status label (HEX code)
     {
       name: 'color',
@@ -107,6 +90,7 @@ const Statuses: CollectionConfig = {
         description: 'Mark this status as the default for its status group (optional).',
       },
     },
+    enabledField,
   ],
   hooks: {
     beforeValidate: [

@@ -15,8 +15,10 @@ import type { CollectionConfig } from 'payload';
 
 const Clients: CollectionConfig = {
   slug: 'clients',
+
   admin: {
     useAsTitle: 'display_name',
+    group: 'CLIENTS MANAGEMENT',
     defaultColumns: [
       'display_name',
       'status',
@@ -80,8 +82,30 @@ const Clients: CollectionConfig = {
     {
       name: 'status',
       type: 'relationship',
-      relationTo: 'statuses',
-      required: false,
+      relationTo: ['statuses'],
+      required: true,
+
+      filterOptions: async ({ req }) => {
+        // Fetch active status groups linked to Clients
+        const activeGroups = await req.payload.find({
+          collection: 'status-groups',
+          where: {
+            linkedCollections: { contains: 'clients' },
+          },
+        });
+
+        const groupIds = activeGroups.docs.map((group) => group.id);
+
+        if (!groupIds.length) return false; // If no active groups, disable the field
+
+        // Fetch active statuses within the groups
+        return {
+          statusGroup: { in: groupIds },
+
+        };
+      },
+
+
       label: 'Client Status',
       admin: {
         description: 'Select the client status from dynamic statuses.',
