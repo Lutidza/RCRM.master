@@ -799,7 +799,7 @@ export interface Bot {
    */
   description?: string | null;
   interface: {
-    blocks?: (MessageBlock | ButtonBlock | LayoutBlock | CommandBlock)[] | null;
+    blocks?: (MessageBlock | ButtonBlock | LayoutBlock | CommandBlock | CatalogBlock)[] | null;
     /**
      * Alias for the layout used for returning users. Example: "start".
      */
@@ -890,7 +890,7 @@ export interface LayoutBlock {
   /**
    * Добавьте вложенные блоки, которые будут отображены внутри лейаута.
    */
-  blocks?: (MessageBlock | ButtonBlock | CommandBlock)[] | null;
+  blocks?: (MessageBlock | ButtonBlock | CommandBlock | CatalogBlock)[] | null;
   /**
    * Если включено, перед отображением лейаута будут удалены все предыдущие сообщения пользователя.
    */
@@ -916,6 +916,35 @@ export interface CommandBlock {
    * Введите текст ответа для команды, если выбран тип "Команда".
    */
   responseText?: string | null;
+  id?: string | null;
+  blockName?: string | null;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "CatalogBlock".
+ */
+export interface CatalogBlock {
+  blockType: 'catalog-blocks';
+  /**
+   * Введите название блока каталога для отображения в админке (например, "Product Catalog").
+   */
+  name: string;
+  /**
+   * Введите уникальный alias для вызова блока каталога (например, "product_catalog").
+   */
+  alias: string;
+  /**
+   * Опционально выберите локацию для фильтрации каталога (одна локация).
+   */
+  locationFilter?: (number | null) | Location;
+  /**
+   * Опционально выберите одну или несколько категорий для отображения. Если не задано, выводятся все категории.
+   */
+  categoryFilter?: (number | ProductCategory)[] | null;
+  /**
+   * Если включено, перед выводом каталога будут удалены все предыдущие сообщения пользователя.
+   */
+  clearPreviousMessages?: boolean | null;
   id?: string | null;
   blockName?: string | null;
 }
@@ -2066,6 +2095,7 @@ export interface BotsSelect<T extends boolean = true> {
               'button-blocks'?: T | ButtonBlockSelect<T>;
               'layout-blocks'?: T | LayoutBlockSelect<T>;
               'command-blocks'?: T | CommandBlockSelect<T>;
+              'catalog-blocks'?: T | CatalogBlockSelect<T>;
             };
         defaultStartLayout?: T;
         defaultFirstVisitLayout?: T;
@@ -2121,6 +2151,7 @@ export interface LayoutBlockSelect<T extends boolean = true> {
         'message-blocks'?: T | MessageBlockSelect<T>;
         'button-blocks'?: T | ButtonBlockSelect<T>;
         'command-blocks'?: T | CommandBlockSelect<T>;
+        'catalog-blocks'?: T | CatalogBlockSelect<T>;
       };
   clearPreviousMessages?: T;
   id?: T;
@@ -2135,6 +2166,20 @@ export interface CommandBlockSelect<T extends boolean = true> {
   command?: T;
   commandType?: T;
   responseText?: T;
+  id?: T;
+  blockName?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "CatalogBlock_select".
+ */
+export interface CatalogBlockSelect<T extends boolean = true> {
+  blockType?: T;
+  name?: T;
+  alias?: T;
+  locationFilter?: T;
+  categoryFilter?: T;
+  clearPreviousMessages?: T;
   id?: T;
   blockName?: T;
 }

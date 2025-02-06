@@ -1,11 +1,11 @@
-// File: src/plugins/TelegramAPI/index.ts
-// Version: 5.2.9
+// 📌 File: src/plugins/TelegramAPI/index.ts
+// 📌 Version: 5.2.12
 //
 // This plugin connects the Bots and Clients collections, initializes bots using grammY,
 // registers commands, processes the /start command, updates or creates a client (using the processClient utility),
 // selects a layout by alias, updates the bot description in Telegram (if provided), and performs detailed logging.
-// The status-checking logic has been updated to work with dynamic statuses (a relationship field).
-// If a client's status (populated as an object or as an ID) has an alias equal to "banned", the client is blocked.
+// The plugin now supports CatalogBlock rendering – when a user selects a catalog category,
+// the renderCategoryItems function is called to display subcategories and products.
 
 import type { Payload, Config, Plugin } from 'payload';
 import {
@@ -19,8 +19,10 @@ import {
 import Bots from '@/collections/TelegramAPI/Bots';
 import Clients from '@/collections/TelegramAPI/Clients';
 import { processClient } from '@/plugins/TelegramAPI/utils/ClientUtils/processClient';
-import { processMessageBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/MessageBlock';
+import { processMessageBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/MessageBlock/index';
 import { bannedClientHook } from '@/plugins/TelegramAPI/hooks/ClientHooks/bannedClientHook';
+import { renderCatalogBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/index';
+import { renderCategoryItems } from '@/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/renderCategoryItems'; // Новый импорт функции
 
 interface SessionData {
   previousMessages: number[];
@@ -56,7 +58,7 @@ export default TelegramAPIPlugin;
 async function initializeBots(payload: Payload) {
   try {
     log('info', 'Searching for all enabled bots...', payload);
-    // Query bots where the 'enabled' field equals "enabled" (select field with string values)
+    // Query bots where the 'enabled' field equals "enabled"
     const { docs: bots } = await payload.find({
       collection: 'bots',
       where: { enabled: { equals: 'enabled' } },
@@ -101,7 +103,7 @@ async function initSingleBot(payload: Payload, botData: any) {
         if (cbType === 'layout') {
           const layoutBlock = findLayoutBlock(botData.interface?.blocks || [], cbValue);
           if (layoutBlock) {
-            await sendLayoutBlock(ctx, layoutBlock);
+            await sendLayoutBlock(ctx, layoutBlock, payload);
           } else {
             await ctx.reply(`Layout with alias "${cbValue}" not found.`);
           }
@@ -111,6 +113,9 @@ async function initSingleBot(payload: Payload, botData: any) {
           await ctx.reply(`Command "${cbValue}" executed.`);
         } else if (cbType === 'link') {
           await ctx.answerCallbackQuery();
+        } else if (cbType === 'catalogCategory') {
+          // Вместо статического ответа вызываем функцию для отображения подкатегорий и товаров выбранной категории.
+          await renderCategoryItems(ctx, cbValue, {}, payload);
         } else {
           await ctx.reply('Unknown button type');
         }
@@ -165,7 +170,7 @@ async function initSingleBot(payload: Payload, botData: any) {
         await ctx.reply(`Interface configuration required: layout with alias "${layoutAlias}" not found`);
         return;
       }
-      await sendLayoutBlock(ctx, layoutBlock);
+      await sendLayoutBlock(ctx, layoutBlock, payload);
     });
 
     for (const cmd of commands) {
@@ -232,11 +237,9 @@ function findLayoutBlock(blocks: any[], layoutAlias: string): any | null {
   return null;
 }
 
-async function sendLayoutBlock(ctx: BotContext, layoutBlock: any) {
+async function sendLayoutBlock(ctx: BotContext, layoutBlock: any, payload: Payload) {
   if (layoutBlock.clearPreviousMessages) {
-    // Do not delete the triggering command message (e.g., /start); only delete all previously sent bot messages.
     if (ctx.chat) {
-      // Iterate over all stored message IDs and delete them.
       for (const msgId of ctx.session.previousMessages) {
         try {
           await ctx.api.deleteMessage(ctx.chat.id, msgId);
@@ -244,27 +247,28 @@ async function sendLayoutBlock(ctx: BotContext, layoutBlock: any) {
           log('error', `Error deleting message ${msgId}: ${err}`, undefined);
         }
       }
-      // Clear the session array to remove all stored message IDs.
       ctx.session.previousMessages = [];
     }
   }
-
   if (!Array.isArray(layoutBlock.blocks) || layoutBlock.blocks.length === 0) {
     const msg = await ctx.reply(`Layout "${layoutBlock.name}" is empty. Please configure the blocks.`);
     storeMessageId(ctx, msg.message_id);
     return;
   }
-
   for (const block of layoutBlock.blocks) {
     switch (block.blockType) {
       case 'MessageBlock':
       case 'message-blocks':
-        // Use the external MessageBlock handler utility for HTML formatting.
         await processMessageBlock(ctx, block);
         break;
       case 'ButtonBlock':
       case 'button-blocks':
         await handleButtonBlock(ctx, block);
+        break;
+      case 'CatalogBlock':
+      case 'catalog-blocks':
+        // If the block is a CatalogBlock, render it (catalogBlock renderer is invoked during layout rendering)
+        await renderCatalogBlock(ctx, block, payload);
         break;
       case 'LayoutBlock':
       case 'layout-blocks':
@@ -288,7 +292,6 @@ async function handleButtonBlock(ctx: BotContext, blockData: any) {
     storeMessageId(ctx, msg.message_id);
     return;
   }
-
   const inlineKeyboard = new InlineKeyboard();
   for (const btn of blockData.buttons) {
     if (btn.newRow) {
@@ -306,7 +309,6 @@ async function handleButtonBlock(ctx: BotContext, blockData: any) {
       inlineKeyboard.text(btn.text, btn.callback_data || '');
     }
   }
-
   const msg = await ctx.reply('Please choose an option:', {
     reply_markup: inlineKeyboard,
   });

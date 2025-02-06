@@ -9,6 +9,7 @@ import type { Block } from 'payload';
 import MessageBlock from '@/blocks/TelegramAPI/MessageBlock/config';
 import ButtonBlock from '@/blocks/TelegramAPI/ButtonBlock/config';
 import CommandBlock from '@/blocks/TelegramAPI/CommandBlock/config';
+import CatalogBlock from '@/blocks/TelegramAPI/CatalogBlock/config';
 
 const LayoutBlock: Block = {
   slug: 'layout-blocks',
@@ -55,6 +56,7 @@ const LayoutBlock: Block = {
         MessageBlock,
         ButtonBlock,
         CommandBlock,
+        CatalogBlock,
       ],
       admin: {
         description: 'Добавьте вложенные блоки, которые будут отображены внутри лейаута.',

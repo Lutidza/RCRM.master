@@ -18,6 +18,7 @@ import LayoutBlock from '@/blocks/TelegramAPI/LayoutBlock/config';
 import CommandBlock from '@/blocks/TelegramAPI/CommandBlock/config';
 
 import type { CollectionConfig } from 'payload';
+import CatalogBlock from "@/blocks/TelegramAPI/CatalogBlock/config";
 
 const Bots: CollectionConfig = {
   slug: 'bots',
@@ -78,6 +79,7 @@ const Bots: CollectionConfig = {
                     ButtonBlock,
                     LayoutBlock,
                     CommandBlock,
+                    CatalogBlock,
                   ],
                 },
                 {
