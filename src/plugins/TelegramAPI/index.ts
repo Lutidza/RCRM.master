@@ -20,6 +20,7 @@ import Bots from '@/collections/TelegramAPI/Bots';
 import Clients from '@/collections/TelegramAPI/Clients';
 import { processClient } from '@/plugins/TelegramAPI/utils/ClientUtils/processClient';
 import { processMessageBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/MessageBlock';
+import { bannedClientHook } from '@/plugins/TelegramAPI/hooks/ClientHooks/bannedClientHook';
 
 interface SessionData {
   previousMessages: number[];
@@ -84,6 +85,9 @@ async function initSingleBot(payload: Payload, botData: any) {
       initial: () => ({ previousMessages: [] }),
     }));
 
+    // Подключаем кастомный хук для проверки заблокированных пользователей
+    bot.use(bannedClientHook(payload));
+
     bot.on('callback_query:data', async (ctx) => {
       try {
         await ctx.answerCallbackQuery();
@@ -136,26 +140,19 @@ async function initSingleBot(payload: Payload, botData: any) {
       }
       const numericBotId: number = botData.id;
       log('debug', `Searching for client with telegram_id=${telegramId} and bot=${numericBotId}`, payload);
+
+      // Вызов processClient, который обновляет или создает клиента (и внутри себя вызывает checkClientBan)
       const client = await processClient(payload, telegramId, numericBotId, ctx.from);
       log('debug', `Client data: ${JSON.stringify(client)}`, payload);
 
-      // Check if the client is banned based on dynamic status (alias "banned")
-      let isBanned = false;
-      if (client.status) {
-        if (typeof client.status === 'object' && client.status !== null) {
-          isBanned = client.status.alias === 'banned';
-        } else {
-          const statusResult = await payload.find({
-            collection: 'statuses',
-            where: { id: { equals: client.status } },
-            limit: 1,
-          });
-          const statusDoc = statusResult.docs[0];
-          isBanned = statusDoc ? statusDoc.alias === 'banned' : false;
-        }
-      }
-      if (isBanned) {
+      // Логирование статуса клиента
+      log('info', `Client ID=${client.id} status: ${JSON.stringify(client.status)}; isBanned: ${client.isBanned}`, payload);
+
+      // Если клиент забанен, отправляем сообщение и прекращаем дальнейшую обработку
+      if (client.isBanned) {
+        log('info', `Client ID=${client.id} is banned. Blocking access.`, payload);
         await ctx.reply('Ваш аккаунт заблокирован. Обратитесь к администратору.');
+        ctx.session = { previousMessages: [] };
         return;
       }
 
