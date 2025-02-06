@@ -778,8 +778,11 @@ export interface Location {
   alias: string;
   parent_id?: (number | null) | Location;
   description?: string | null;
-  Enabled: 'enabled' | 'disabled';
   linked_bots?: (number | Bot)[] | null;
+  /**
+   * Specify whether this status is active or not.
+   */
+  enabled: 'enabled' | 'disabled';
   updatedAt: string;
   createdAt: string;
 }
@@ -928,7 +931,10 @@ export interface ProductCategory {
   description?: string | null;
   media?: (number | null) | Media;
   linked_bots?: (number | Bot)[] | null;
-  Enabled: 'enabled' | 'disabled';
+  /**
+   * Specify whether this status is active or not.
+   */
+  enabled: 'enabled' | 'disabled';
   updatedAt: string;
   createdAt: string;
 }
@@ -947,12 +953,18 @@ export interface Product {
   discount?: (number | null) | Discount;
   category_ids: (number | ProductCategory)[];
   labels_ids?: (number | Label)[] | null;
-  status?: (number | null) | Status;
   offers?: {
     docs?: (number | Offer)[] | null;
     hasNextPage?: boolean | null;
   } | null;
+  /**
+   * Specify whether this status is active or not.
+   */
   enabled: 'enabled' | 'disabled';
+  /**
+   * Select a status from the available options. If none is selected, the default status will be automatically assigned.
+   */
+  status?: (number | null) | Status;
   offers_quantity: number;
   locations_ids?: (number | Location)[] | null;
   owner?: (number | null) | User;
@@ -972,8 +984,14 @@ export interface Discount {
   discount_fixed_amount?: number | null;
   start_date: string;
   end_date: string;
-  applies_to_products?: (number | Product)[] | null;
-  status: 'active' | 'inactive';
+  /**
+   * Specify whether this status is active or not.
+   */
+  enabled: 'enabled' | 'disabled';
+  /**
+   * Select a status from the available options. If none is selected, the default status will be automatically assigned.
+   */
+  status?: (number | null) | Status;
   updatedAt: string;
   createdAt: string;
 }
@@ -999,15 +1017,14 @@ export interface Label {
    * Optional description for the label.
    */
   description?: string | null;
-  enabled: 'enabled' | 'disabled';
-  /**
-   * Optional HEX code for the label color.
-   */
-  color?: string | null;
   /**
    * Mark this label as the default for its label group (optional).
    */
   setAsDefault?: boolean | null;
+  /**
+   * Specify whether this status is active or not.
+   */
+  enabled: 'enabled' | 'disabled';
   updatedAt: string;
   createdAt: string;
 }
@@ -1025,7 +1042,6 @@ export interface LabelGroup {
    * A unique alias for the label group used internally.
    */
   alias: string;
-  enabled: 'enabled' | 'disabled';
   /**
    * Collections where this label group is applicable.
    */
@@ -1038,6 +1054,10 @@ export interface LabelGroup {
    * Additional information about the label group.
    */
   description?: string | null;
+  /**
+   * Specify whether this status is active or not.
+   */
+  enabled: 'enabled' | 'disabled';
   updatedAt: string;
   createdAt: string;
 }
@@ -1056,8 +1076,14 @@ export interface Offer {
   product: number | Product;
   client?: (number | null) | Client;
   executor?: (number | null) | Client;
-  status?: (number | null) | Status;
+  /**
+   * Specify whether this status is active or not.
+   */
   enabled: 'enabled' | 'disabled';
+  /**
+   * Select a status from the available options. If none is selected, the default status will be automatically assigned.
+   */
+  status?: (number | null) | Status;
   updatedAt: string;
   createdAt: string;
 }
@@ -1725,8 +1751,8 @@ export interface LocationsSelect<T extends boolean = true> {
   alias?: T;
   parent_id?: T;
   description?: T;
-  Enabled?: T;
   linked_bots?: T;
+  enabled?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -1741,7 +1767,7 @@ export interface ProductCategoriesSelect<T extends boolean = true> {
   description?: T;
   media?: T;
   linked_bots?: T;
-  Enabled?: T;
+  enabled?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -1759,9 +1785,9 @@ export interface ProductsSelect<T extends boolean = true> {
   discount?: T;
   category_ids?: T;
   labels_ids?: T;
-  status?: T;
   offers?: T;
   enabled?: T;
+  status?: T;
   offers_quantity?: T;
   locations_ids?: T;
   owner?: T;
@@ -1783,8 +1809,8 @@ export interface OffersSelect<T extends boolean = true> {
   product?: T;
   client?: T;
   executor?: T;
-  status?: T;
   enabled?: T;
+  status?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -1799,7 +1825,7 @@ export interface DiscountsSelect<T extends boolean = true> {
   discount_fixed_amount?: T;
   start_date?: T;
   end_date?: T;
-  applies_to_products?: T;
+  enabled?: T;
   status?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -1811,10 +1837,10 @@ export interface DiscountsSelect<T extends boolean = true> {
 export interface LabelGroupsSelect<T extends boolean = true> {
   name?: T;
   alias?: T;
-  enabled?: T;
   linkedCollections?: T;
   linkedLabels?: T;
   description?: T;
+  enabled?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -1827,9 +1853,8 @@ export interface LabelsSelect<T extends boolean = true> {
   label?: T;
   labelGroup?: T;
   description?: T;
-  enabled?: T;
-  color?: T;
   setAsDefault?: T;
+  enabled?: T;
   updatedAt?: T;
   createdAt?: T;
 }

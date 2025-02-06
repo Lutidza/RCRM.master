@@ -2,6 +2,8 @@
 // 📌 Версия: 1.9.4
 
 import type { CollectionConfig } from 'payload';
+import enabledField from "@/fields/TelegramAPI/enabledFiled";
+import { getStatusField } from "@/fields/TelegramAPI/getStatusField";
 
 export const Offers: CollectionConfig = {
   slug: 'offers',
@@ -70,7 +72,11 @@ export const Offers: CollectionConfig = {
       required: false,
       label: 'Client',
       filterOptions: () => ({
-        'status.alias': { not_equals: 'executor' }
+        and: [
+          {'status.alias': {not_equals: 'executor'}},
+          {'status.alias': {not_equals: 'banned'}},
+        ],
+
       }),
       admin: {
         position: 'sidebar',
@@ -82,35 +88,17 @@ export const Offers: CollectionConfig = {
       relationTo: 'clients',
       label: 'Executor',
       filterOptions: () => ({
-        'status.alias': { equals: 'executor' }
+        and: [
+          {'status.alias': {equals: 'executor'}},
+          {'status.alias': {not_equals: 'banned'}},
+        ],
       }),
       admin: {
         position: 'sidebar',
       },
     },
-    {
-      name: 'status',
-      type: 'relationship',
-      relationTo: 'statuses',
-      required: false,
-      label: 'Status',
-      admin: {
-        position: 'sidebar',
-      },
-    },
-    {
-      name: 'enabled',
-      type: 'select',
-      options: [
-        { label: 'Enabled', value: 'enabled' },
-        { label: 'Disabled', value: 'disabled' }
-      ],
-      required: true,
-      defaultValue: 'enabled',
-      label: 'Enabled',
-      admin: {
-        position: 'sidebar',
-      },
-    },
+    enabledField,
+    getStatusField('offers'), // Pass the current collection's slug explicitly.
+
   ],
 };

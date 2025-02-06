@@ -2,6 +2,7 @@
 // 📌 Версия: 1.1.0
 
 import type { CollectionConfig } from 'payload';
+import enabledField from "@/fields/TelegramAPI/enabledFiled";
 
 export const ProductCategories: CollectionConfig = {
   slug: 'product-categories',
@@ -35,6 +36,14 @@ export const ProductCategories: CollectionConfig = {
       admin: {
         position: 'sidebar',
       },
+      filterOptions: async ({ data }) => {
+        // If editing an existing document (data contains an id), exclude the document itself
+        if (data && data.id) {
+          return { id: { not_equals: data.id } };
+        }
+        // For new documents, return true to apply no filtering.
+        return true;
+      },
     },
     {
       name: 'description',
@@ -57,19 +66,6 @@ export const ProductCategories: CollectionConfig = {
         position: 'sidebar',
       },
     },
-    {
-      name: 'Enabled',
-      type: 'select',
-      options: [
-        { label: 'Enabled', value: 'enabled' },
-        { label: 'Disabled', value: 'disabled' }
-      ],
-      required: true,
-      defaultValue: 'enabled',
-      label: 'Enabled',
-      admin: {
-        position: 'sidebar',
-      },
-    }
+    enabledField,
   ]
 };

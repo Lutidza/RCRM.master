@@ -2,6 +2,7 @@
 // 📌 Версия: 1.0.1
 
 import type { CollectionConfig } from 'payload';
+import enabledField from "@/fields/TelegramAPI/enabledFiled";
 
 const LabelGroups: CollectionConfig = {
   slug: 'label-groups',
@@ -28,20 +29,6 @@ const LabelGroups: CollectionConfig = {
       label: 'Group Alias',
       admin: {
         description: 'A unique alias for the label group used internally.',
-      },
-    },
-    {
-      name: 'enabled',
-      type: 'select',
-      options: [
-        { label: 'Enabled', value: 'enabled' },
-        { label: 'Disabled', value: 'disabled' }
-      ],
-      required: true,
-      defaultValue: 'enabled',
-      label: 'Enabled',
-      admin: {
-        position: 'sidebar',
       },
     },
     {
@@ -83,6 +70,7 @@ const LabelGroups: CollectionConfig = {
         description: 'Additional information about the label group.',
       },
     },
+    enabledField,
   ],
 };
 

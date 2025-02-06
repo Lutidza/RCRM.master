@@ -2,6 +2,7 @@
 // 📌 Версия: 1.0.1
 
 import type { CollectionConfig } from 'payload';
+import enabledField from "@/fields/TelegramAPI/enabledFiled";
 
 const Labels: CollectionConfig = {
   slug: 'labels',
@@ -62,30 +63,6 @@ const Labels: CollectionConfig = {
       },
     },
     {
-      name: 'enabled',
-      type: 'select',
-      options: [
-        { label: 'Enabled', value: 'enabled' },
-        { label: 'Disabled', value: 'disabled' }
-      ],
-      required: true,
-      defaultValue: 'enabled',
-      label: 'Enabled',
-      admin: {
-        position: 'sidebar',
-      },
-    },
-    {
-      name: 'color',
-      type: 'text',
-      required: false,
-      defaultValue: '#8002ad',
-      label: 'Color',
-      admin: {
-        description: 'Optional HEX code for the label color.',
-      },
-    },
-    {
       name: 'setAsDefault',
       type: 'checkbox',
       required: false,
@@ -94,6 +71,7 @@ const Labels: CollectionConfig = {
         description: 'Mark this label as the default for its label group (optional).',
       },
     },
+    enabledField,
   ],
   hooks: {
     beforeValidate: [

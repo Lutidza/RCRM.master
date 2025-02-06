@@ -2,6 +2,8 @@
 // 📌 Версия: 1.0.0
 
 import type { CollectionConfig } from 'payload';
+import enabledField from "@/fields/TelegramAPI/enabledFiled";
+import { getStatusField } from "@/fields/TelegramAPI/getStatusField";
 
 export const Discounts: CollectionConfig = {
   slug: 'discounts',
@@ -51,26 +53,7 @@ export const Discounts: CollectionConfig = {
       required: true,
       label: 'End Date',
     },
-    {
-      name: 'applies_to_products',
-      type: 'relationship',
-      relationTo: 'products',
-      hasMany: true,
-      label: 'Applicable Products',
-    },
-    {
-      name: 'status',
-      type: 'select',
-      options: [
-        { label: 'Active', value: 'active' },
-        { label: 'Inactive', value: 'inactive' }
-      ],
-      required: true,
-      defaultValue: 'active',
-      label: 'Status',
-      admin: {
-        position: 'sidebar',
-      },
-    }
+    enabledField,
+    getStatusField('discounts'), // Pass the current collection's slug explicitly.
   ]
 };

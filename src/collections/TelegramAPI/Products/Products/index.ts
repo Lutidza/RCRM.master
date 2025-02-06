@@ -3,6 +3,8 @@
 
 import type { CollectionConfig } from 'payload';
 import  ThumbnailCell  from "@/components/AdminUI/ThumbnailCell";
+import enabledField from "@/fields/TelegramAPI/enabledFiled";
+import { getStatusField } from "@/fields/TelegramAPI/getStatusField";
 
 export const Products: CollectionConfig = {
   slug: 'products',
@@ -84,13 +86,6 @@ export const Products: CollectionConfig = {
       required: false,
     },
     {
-      name: 'status',
-      type: 'relationship',
-      relationTo: 'statuses',
-      label: 'Status',
-      required: false,
-    },
-    {
       name: 'offers',
       type: 'join',
       collection: 'offers',
@@ -101,20 +96,8 @@ export const Products: CollectionConfig = {
         defaultColumns: ['name', 'location', 'status', 'updated_at'],
       },
     },
-    {
-      name: 'enabled',
-      type: 'select',
-      options: [
-        { label: 'Enabled', value: 'enabled' },
-        { label: 'Disabled', value: 'disabled' },
-      ],
-      required: true,
-      defaultValue: 'enabled',
-      label: 'Enabled',
-      admin: {
-        position: 'sidebar',
-      },
-    },
+    enabledField,
+    getStatusField('products'), // Pass the current collection's slug explicitly.
     {
       name: 'offers_quantity',
       type: 'number',

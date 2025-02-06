@@ -1,13 +1,5 @@
-// Path: src/collections/TelegramAPI/Settings/Statuses/Statuses/index.ts
-// Version: 1.0.1
-//
-// The Statuses collection stores dynamic statuses. Each status has a unique alias and label
-// within a status group. It may optionally be marked as the default status for its group.
-// This collection includes an optional description, an activity flag, and a color.
-// The statusGroup field links this status to a status group from the "status-groups" collection.
-
 import type { CollectionConfig } from 'payload';
-import  enabledField  from "@/fields/TelegramAPI/enabledFiled/index";
+import enabledField from "@/fields/TelegramAPI/enabledFiled/index";
 
 const Statuses: CollectionConfig = {
   slug: 'statuses',
@@ -18,7 +10,7 @@ const Statuses: CollectionConfig = {
   defaultPopulate: {
     statusGroup: {
       id: true,
-      linkedCollections: true, // выбираем поле linkedCollections из группы
+      linkedCollections: true, // select linkedCollections field from the group
       name: true,
     },
   },
@@ -53,9 +45,7 @@ const Statuses: CollectionConfig = {
       admin: {
         description: 'The group this status belongs to.',
       },
-
     },
-
     // Optional description for the status
     {
       name: 'description',
@@ -72,6 +62,7 @@ const Statuses: CollectionConfig = {
       type: 'checkbox',
       required: false,
       label: 'Set as Default',
+      defaultValue: false,
       admin: {
         description: 'Mark this status as the default for its status group (optional).',
       },
@@ -82,6 +73,7 @@ const Statuses: CollectionConfig = {
     beforeValidate: [
       async ({ data, originalDoc, req }) => {
         if (!data || !data.statusGroup) return data;
+
         // Validate alias uniqueness within the group
         if (data.alias) {
           const existingAlias = await req.payload.find({
@@ -111,6 +103,29 @@ const Statuses: CollectionConfig = {
             throw new Error(`A status with the label "${data.label}" already exists in this group.`);
           }
         }
+
+        // Instead of throwing an error if setAsDefault is true and another default exists,
+        // unset the default flag on any other status in the same group.
+        if (data.setAsDefault) {
+          const existingDefaults = await req.payload.find({
+            collection: 'statuses',
+            where: {
+              statusGroup: { equals: data.statusGroup },
+              setAsDefault: { equals: true },
+              id: { not_equals: originalDoc?.id || '' },
+            },
+            limit: 999, // ensure you fetch all potential defaults
+          });
+          // For each status that is currently default, unset its default flag.
+          for (const doc of existingDefaults.docs) {
+            await req.payload.update({
+              collection: 'statuses',
+              id: doc.id,
+              data: { setAsDefault: false },
+            });
+          }
+        }
+
         return data;
       },
     ],

@@ -2,6 +2,7 @@
 // 📌 Версия: 1.1.1
 
 import type { CollectionConfig } from 'payload';
+import enabledField from "@/fields/TelegramAPI/enabledFiled";
 
 export const Locations: CollectionConfig = {
   slug: 'locations',
@@ -35,25 +36,19 @@ export const Locations: CollectionConfig = {
       admin: {
         position: 'sidebar',
       },
+      filterOptions: async ({ data }) => {
+        // If editing an existing document (data contains an id), exclude the document itself
+        if (data && data.id) {
+          return { id: { not_equals: data.id } };
+        }
+        // For new documents, return true to apply no filtering.
+        return true;
+      },
     },
     {
       name: 'description',
       type: 'textarea',
       label: 'Description',
-    },
-    {
-      name: 'Enabled',
-      type: 'select',
-      options: [
-        { label: 'Enabled', value: 'enabled' },
-        { label: 'Disabled', value: 'disabled' }
-      ],
-      required: true,
-      defaultValue: 'enabled',
-      label: 'Enabled',
-      admin: {
-        position: 'sidebar',
-      },
     },
     {
       name: 'linked_bots',
@@ -64,6 +59,7 @@ export const Locations: CollectionConfig = {
       admin: {
         position: 'sidebar',
       },
-    }
+    },
+    enabledField,
   ]
 };
