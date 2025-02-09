@@ -1,12 +1,21 @@
-// Path: src/plugins/TelegramAPI/utils/processClient.ts
-// Version: 1.1.2
+// 📌 Путь: src/plugins/TelegramAPI/utils/processClient.ts
+// 📌 Версия: 1.2.1
 //
-// This utility processes clients in the "clients" collection. It searches for a client by `telegram_id`.
-// If the client exists, it updates the data (increments `total_visit`, adds a bot if missing).
-// If the client does not exist, it creates a new record and assigns default properties.
+// [CHANGELOG]
+// - Исправлена ошибка TS18048, связанная с потенциальным undefined для existingClient.
+// - Улучшена типизация и добавлены явные утверждения типов.
 
 import type { Payload } from 'payload';
+import { checkClientStatus } from '@/plugins/TelegramAPI/utils/ClientUtils/checkClientStatus';
 
+/**
+ * Обработка клиента в коллекции "clients".
+ * @param {Payload} payload - Экземпляр Payload CMS.
+ * @param {number} telegramId - Telegram ID пользователя.
+ * @param {number} botId - Идентификатор бота.
+ * @param {any} fromData - Данные пользователя из Telegram (имя, фамилия, username).
+ * @returns {Promise<any>} Обновлённые или созданные данные клиента.
+ */
 export async function processClient(
   payload: Payload,
   telegramId: number,
@@ -16,7 +25,7 @@ export async function processClient(
   try {
     console.log(`[processClient] Searching for client with telegram_id=${telegramId} and bot=${botId}`);
 
-    // Find existing client
+    // Поиск существующего клиента
     const { docs } = await payload.find({
       collection: 'clients',
       where: { telegram_id: { equals: telegramId } },
@@ -25,10 +34,10 @@ export async function processClient(
 
     let client: any;
 
-    // Fix: Проверка, что `docs` содержит хотя бы один элемент
     if (!docs || docs.length === 0) {
       console.log("[processClient] No existing client found, creating a new one...");
 
+      // Создаём нового клиента
       client = await payload.create({
         collection: 'clients',
         data: {
@@ -39,32 +48,26 @@ export async function processClient(
           user_name: fromData.username || 'anonymous_user',
           total_visit: 1,
           last_visit: new Date().toISOString(),
-          enabled: "enabled", // Ensures compatibility with Payload CMS
+          enabled: "enabled", // Совместимость с Payload CMS
         },
       });
     } else {
-      // Fix: Теперь `docs[0]` гарантированно существует
-      const existingClient = docs[0];
-
-      if (!existingClient) {
-        console.log("[processClient] Unexpected: existingClient is undefined.");
-        return;
-      }
+      const existingClient = docs[0]!; // Утверждаем, что docs[0] существует
 
       console.log(`[processClient] Client found: ID=${existingClient.id}`);
 
-      // Extract and normalize bots array
+      // Нормализация поля bots
       let botsArray: any[] = Array.isArray(existingClient.bots)
         ? existingClient.bots
         : existingClient.bots ? [existingClient.bots] : [];
 
-      // Add botId if it's not already in the list
+      // Добавляем botId, если он отсутствует
       if (!botsArray.some(b => (typeof b === 'object' ? b.id.toString() === botId.toString() : b.toString() === botId.toString()))) {
         botsArray.push(botId);
         console.log(`[processClient] Bot ${botId} added to client ${existingClient.id}`);
       }
 
-      // Update client data
+      // Обновляем клиента
       client = await payload.update({
         collection: 'clients',
         id: existingClient.id,
@@ -79,65 +82,13 @@ export async function processClient(
       });
     }
 
-    // Новый блок: Проверка и блокировка клиента, если его статус имеет alias "banned"
-    client = await checkClientBan(payload, client);
+    // Проверяем статус клиента (используем checkClientStatus)
+    const statusAlias = await checkClientStatus(payload, client.status);
+    const isBanned = statusAlias === 'banned';
 
-    return client;
-  } catch (error: any) {
-    console.error("[processClient] Error processing client:", error);
-    return { total_visit: 1 };
-  }
-}
-
-/**
- * Функция checkClientBan проверяет поле status клиента и, если статус имеет alias "banned",
- * обновляет запись клиента (например, устанавливая enabled: "disabled") и добавляет флаг isBanned.
- * Это позволяет:
- * 1. Клиент со статусом banned не сможет запускать бот и отправлять команды.
- * 2. При изменении статуса в панели администратора сессия клиента завершается.
- */
-async function checkClientBan(payload: Payload, client: any): Promise<any> {
-  if (client.status) {
-    let banned = false;
-    let statusAlias: string | undefined = undefined;
-
-    if (typeof client.status === 'object' && client.status !== null) {
-      // Если объект содержит поле alias, используем его
-      if ('alias' in client.status && typeof client.status.alias === 'string') {
-        statusAlias = client.status.alias;
-        banned = statusAlias === 'banned';
-      } else if ('id' in client.status) {
-        // Если alias отсутствует, но есть id – выполняем запрос для получения полного статуса
-        const statusResult = await payload.find({
-          collection: 'statuses',
-          where: { id: { equals: client.status.id } },
-          limit: 1,
-        });
-        const statusDoc = statusResult.docs[0];
-        if (statusDoc) {
-          statusAlias = statusDoc.alias;
-          banned = statusAlias === 'banned';
-        }
-      }
-    } else {
-      // Если status не является объектом, предполагаем, что это id
-      const statusResult = await payload.find({
-        collection: 'statuses',
-        where: { id: { equals: client.status } },
-        limit: 1,
-      });
-      const statusDoc = statusResult.docs[0];
-      if (statusDoc) {
-        statusAlias = statusDoc.alias;
-        banned = statusAlias === 'banned';
-      }
-    }
-
-    console.log(`[processClient] Client status alias: ${statusAlias}`);
-
-    if (banned) {
+    if (isBanned) {
       console.log(`[processClient] Client ID=${client.id} is banned. Updating status...`);
-      // Обновляем клиента, отключая его (например, меняем enabled на "disabled")
+      // Обновляем клиента, отключая его
       client = await payload.update({
         collection: 'clients',
         id: client.id,
@@ -149,8 +100,10 @@ async function checkClientBan(payload: Payload, client: any): Promise<any> {
     } else {
       client.isBanned = false;
     }
-  } else {
-    client.isBanned = false;
+
+    return client;
+  } catch (error: any) {
+    console.error("[processClient] Error processing client:", error);
+    return { total_visit: 1 };
   }
-  return client;
 }

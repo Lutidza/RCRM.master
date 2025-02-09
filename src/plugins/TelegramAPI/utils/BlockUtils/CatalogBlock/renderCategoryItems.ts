@@ -1,107 +1,157 @@
-// 📌 Файл: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/renderCategoryItems.ts
-// 📌 Версия: 1.0.0
+// 📌 Путь: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/renderCategoryItems.ts
+// 📌 Версия: 1.4.7
 //
-// This utility function renders the subcategories and products for a selected catalog category in the Telegram bot.
-// It queries the "product-categories" collection for subcategories (where parent_id equals the selected category ID)
-// and the "products" collection for products that belong to the selected category (filtered by category_ids).
-// Optionally, it applies a location filter (if provided via catalogBlockData.locationFilter).
-// The function builds an inline keyboard with buttons for subcategories and products,
-// where each subcategory button has callback_data in the format "catalogCategory|<subcategoryId>"
-// and each product button has callback_data in the format "catalogProduct|<productId>".
-// Finally, it sends a Telegram message with the constructed inline keyboard using HTML formatting.
+// [CHANGELOG]
+// - Добавлено удаление всех предыдущих сообщений (включая блоки с кнопками) перед выводом категорий и товаров.
+// - Устранены проблемы с некорректным сохранением ID сообщений.
 
 import type { Payload } from 'payload';
+import type { BotContext } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
+import { clearPreviousMessages, storeMessageId } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
 import { InlineKeyboard } from 'grammy';
-import type { Context, SessionFlavor } from 'grammy';
+import { paginateCategoryItems } from './paginateCategoryItems';
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
 
-interface SessionData {
-  previousMessages: number[];
-}
+// Заглушки для медиа
+const DEFAULT_CATEGORY_MEDIA = [
+  {
+    url: 'https://kvartiry-tbilisi.ru/images/demo/product_banner-1.png',
+  },
+];
+const DEFAULT_PRODUCT_MEDIA = [
+  {
+    url: 'https://kvartiry-tbilisi.ru/images/demo/product_banner-1.png',
+  },
+];
 
-type BotContext = Context & SessionFlavor<SessionData>;
-
+/**
+ * Функция для отображения элементов категории.
+ * @param {BotContext} ctx - Контекст Telegram бота.
+ * @param {string} categoryId - Идентификатор категории (строка, полученная из Telegram callback).
+ * @param {PaginationOptions} paginationOptions - Опции пагинации.
+ * @param {Payload} payload - Экземпляр Payload CMS.
+ * @param {boolean} clearMessages - Удалять ли предыдущие сообщения перед выводом.
+ * @returns {Promise<void>}
+ */
 export async function renderCategoryItems(
   ctx: BotContext,
   categoryId: string,
-  catalogBlockData: any,
-  payload: Payload
+  paginationOptions: { page: number; itemsPerPage: number },
+  payload: Payload,
+  clearMessages: boolean = true // Удаление сообщений включено по умолчанию
 ): Promise<void> {
   try {
-    // Prepare filter for subcategories: select categories where parent_id equals the selected category ID.
-    const subcategoriesFilter = { parent_id: { equals: categoryId } };
-
-    // Query subcategories from the "product-categories" collection.
-    const subcategoriesResult = await payload.find({
-      collection: 'product-categories',
-      where: subcategoriesFilter,
-      sort: 'name',
-      limit: 999,
-    });
-    const subcategories = subcategoriesResult.docs;
-
-    // Prepare filter for products belonging to the selected category.
-    // Assuming each product has an array field "category_ids".
-    let productsFilter: any = {
-      category_ids: { in: [categoryId] },
-    };
-
-    // If a location filter is specified in the catalog block settings, add it to the product filter.
-    if (catalogBlockData && catalogBlockData.locationFilter) {
-      productsFilter.locations_ids = { in: [catalogBlockData.locationFilter] };
-    }
-
-    // Query products from the "products" collection.
-    const productsResult = await payload.find({
-      collection: 'products',
-      where: productsFilter,
-      sort: 'name',
-      limit: 999,
-    });
-    const products = productsResult.docs;
-
-    // Build an inline keyboard with buttons for subcategories and products.
-    const keyboard = new InlineKeyboard();
-
-    // Add buttons for subcategories if any are found.
-    if (subcategories && subcategories.length > 0) {
-      subcategories.forEach((subcat: any, index: number) => {
-        // Button text is the subcategory name.
-        keyboard.text(subcat.name, `catalogCategory|${subcat.id}`);
-        // Optionally, insert a new row after every 2 buttons.
-        if ((index + 1) % 2 === 0) {
-          keyboard.row();
-        }
-      });
-      // If products are also present, add a new row separator.
-      if (products && products.length > 0) {
-        keyboard.row();
-      }
-    }
-
-    // Add buttons for products if any are found.
-    if (products && products.length > 0) {
-      products.forEach((prod: any) => {
-        // Construct button text with product name, price, and size.
-        const buttonText = `${prod.name} - ${prod.price}₾ - ${prod.size}`;
-        keyboard.text(buttonText, `catalogProduct|${prod.id}`);
-        // Place each product button on a new row.
-        keyboard.row();
-      });
-    }
-
-    // If neither subcategories nor products were found, inform the user.
-    if ((!subcategories || subcategories.length === 0) && (!products || products.length === 0)) {
-      await ctx.reply("Нет подкатегорий или товаров для выбранной категории.", { parse_mode: 'HTML' });
+    if (!ctx.chat) {
+      log('error', 'Контекст чата отсутствует.', payload);
       return;
     }
 
-    // Send the constructed inline keyboard as a message.
-    await ctx.reply("Пожалуйста, выберите подкатегорию или товар:", {
-      reply_markup: keyboard,
+    const parsedCategoryId = parseInt(categoryId, 10);
+    if (isNaN(parsedCategoryId)) {
+      log('error', `Некорректный идентификатор категории: "${categoryId}".`, payload);
+      await ctx.reply('Ошибка: некорректный идентификатор категории.');
+      return;
+    }
+
+    const { page, itemsPerPage } = paginationOptions;
+
+    // Удаление предыдущих сообщений, если включено
+    if (clearMessages) {
+      await clearPreviousMessages(ctx);
+    }
+
+    // Получение текущей категории
+    const category = await payload.findByID({
+      collection: 'product-categories',
+      id: categoryId,
+    });
+
+    if (!category) {
+      log('error', `Категория с ID "${categoryId}" не найдена.`, payload);
+      const msg = await ctx.reply('Ошибка: категория не найдена.');
+      storeMessageId(ctx, msg.message_id);
+      return;
+    }
+
+    const categoryMedia = Array.isArray(category.media) && category.media.length > 0
+      ? category.media
+      : DEFAULT_CATEGORY_MEDIA;
+
+    // Отправка информации о категории
+    const categoryCaption = `<b>${category.name}</b>\n${category.description || ''}`;
+    const categoryMsg = await ctx.replyWithPhoto(categoryMedia[0].url, {
+      caption: categoryCaption,
       parse_mode: 'HTML',
     });
+    storeMessageId(ctx, categoryMsg.message_id);
+
+    // Получение подкатегорий и продуктов с использованием пагинации
+    const categories = await paginateCategoryItems(
+      payload,
+      'product-categories',
+      { parent_id: { equals: parsedCategoryId } },
+      page,
+      itemsPerPage,
+    );
+
+    const products = await paginateCategoryItems(
+      payload,
+      'products',
+      { category_ids: { in: [parsedCategoryId] } },
+      page,
+      itemsPerPage,
+    );
+
+    // Если категория пуста (нет подкатегорий и товаров)
+    if (categories.length === 0 && products.length === 0) {
+      const emptyMessage = await ctx.reply('Категория пуста. Нет данных для отображения.');
+      storeMessageId(ctx, emptyMessage.message_id);
+      return;
+    }
+
+    // Отправка подкатегорий
+    if (categories.length > 0) {
+      const categoryKeyboard = new InlineKeyboard();
+      categories.forEach((cat: any, index: number) => {
+        categoryKeyboard.text(cat.name, `catalogCategory|${cat.id}`);
+        if ((index + 1) % 2 === 0) categoryKeyboard.row();
+      });
+
+      const subCategoryMsg = await ctx.reply('Подкатегории:', {
+        reply_markup: categoryKeyboard,
+      });
+      storeMessageId(ctx, subCategoryMsg.message_id);
+    }
+
+    // Отправка товаров
+    if (products.length > 0) {
+      for (const product of products) {
+        const productMedia = Array.isArray(product.media) && product.media.length > 0
+          ? product.media
+          : DEFAULT_PRODUCT_MEDIA;
+
+        const productCaption = `<b>${product.name}</b>\n<b>Цена:</b> ${
+          product.price ? `$${product.price}` : 'N/A'
+        }\n<b>Статус:</b> ${product.status ?? 'Неизвестно'}`;
+
+        const productKeyboard = new InlineKeyboard()
+          .text('Details', `catalogProductDetails|${product.id}`)
+          .text('Buy Now', `catalogBuyNow|${product.id}`);
+
+        const productMsg = await ctx.replyWithPhoto(productMedia[0].url, {
+          caption: productCaption,
+          parse_mode: 'HTML',
+          reply_markup: productKeyboard,
+        });
+
+        storeMessageId(ctx, productMsg.message_id);
+      }
+    }
+
+    log('info', `Элементы категории успешно отправлены для ID: ${categoryId}.`, payload);
   } catch (error: any) {
-    console.error("Error rendering category items:", error);
-    await ctx.reply("Произошла ошибка при загрузке данных категории.", { parse_mode: 'HTML' });
+    log('error', `Ошибка при рендеринге элементов категории: ${error.message}`, payload);
+    const errorMsg = await ctx.reply('Произошла ошибка при загрузке данных категории.');
+    storeMessageId(ctx, errorMsg.message_id);
   }
 }

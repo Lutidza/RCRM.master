@@ -1,86 +1,65 @@
-// 📌 Файл: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/index.ts
-// 📌 Версия: 1.0.0
+// 📌 Путь: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/index.ts
+// 📌 Версия: 1.2.0
 //
-// Функция renderCatalogBlock отвечает за рендеринг блока каталога продукции в интерфейсе Telegram-бота.
-// Она выполняет запрос к коллекции "product-categories" с учетом настроек блока (например, фильтры по категориям)
-// и формирует инлайн-клавиатуру, где каждая кнопка представляет категорию.
-// Callback data кнопки имеет формат "catalogCategory|<categoryId>".
-// В будущем данную функцию можно расширить, добавив вывод подкатегорий и товаров.
+// [CHANGELOG]
+// - Убрана попытка загружать подкатегории и товары на главной странице `CatalogBlock`.
+// - Добавлено описание вывода только первого уровня категорий.
+// - Добавлена обработка отсутствия категорий.
 
 import type { Payload } from 'payload';
 import { InlineKeyboard } from 'grammy';
-import type { Context, SessionFlavor } from 'grammy';
-
-interface SessionData {
-  previousMessages: number[];
-}
-
-type BotContext = Context & SessionFlavor<SessionData>;
+import type { BotContext } from '@/plugins/TelegramAPI/utils/BotUtils/initializeBots';
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
 
 /**
- * renderCatalogBlock - функция для рендеринга блока каталога.
- *
- * @param ctx - Контекст бота (BotContext), содержащий информацию о сессии и чате.
- * @param blockData - Настройки блока CatalogBlock, заданные в админке (включают alias, locationFilter, categoryFilter и т.д.).
- * @param payload - Экземпляр Payload CMS для выполнения запросов к коллекциям.
- *
- * Логика:
- * 1. Если в настройках блока задан categoryFilter (массив ID категорий), используется он для фильтрации.
- *    Если нет – выбираются только топ-уровневые категории (где parent_id равен null).
- * 2. Выполняется запрос к коллекции "product-categories" с указанным фильтром.
- * 3. Формируется инлайн-клавиатура: каждая кнопка содержит имя категории и callback_data вида "catalogCategory|<categoryId>".
- * 4. Отправляется сообщение с инлайн-клавиатурой для выбора категории.
+ * Отображение `CatalogBlock`.
+ * @param {BotContext} ctx - Контекст Telegram бота.
+ * @param {any} block - Блок каталога.
+ * @param {Payload} payload - Экземпляр Payload CMS.
  */
-export async function renderCatalogBlock(
-  ctx: BotContext,
-  blockData: any,
-  payload: Payload
-): Promise<void> {
+export async function renderCatalogBlock(ctx: BotContext, block: any, payload: Payload): Promise<void> {
   try {
-    // Определяем фильтр для выборки категорий
-    let whereClause: any = {};
-
-    if (blockData.categoryFilter && Array.isArray(blockData.categoryFilter) && blockData.categoryFilter.length > 0) {
-      // Если задан фильтр по категориям, используем его
-      whereClause.id = { in: blockData.categoryFilter };
-    } else {
-      // Если фильтр не задан, выбираем только топ-уровневые категории (без родительской категории)
-      whereClause.parent_id = { equals: null };
+    if (!block || !ctx.chat) {
+      throw new Error('Некорректный блок или контекст чата.');
     }
 
-    // Выполняем запрос к коллекции "product-categories"
+    const inlineKeyboard = new InlineKeyboard();
+
+    // Загрузка категорий первого уровня
     const categoriesResult = await payload.find({
       collection: 'product-categories',
-      where: whereClause,
-      sort: 'name',
+      where: { parent_id: { equals: null } }, // Только категории верхнего уровня
       limit: 999,
     });
+
     const categories = categoriesResult.docs;
 
-    // Если категорий не найдено, информируем пользователя
-    if (!categories || categories.length === 0) {
-      await ctx.reply("No categories found.");
+    // Если категории отсутствуют
+    if (categories.length === 0) {
+      await ctx.reply('Категории отсутствуют.');
+      log('info', 'Категории для отображения отсутствуют.', payload);
       return;
     }
 
-    // Формируем инлайн-клавиатуру с кнопками для каждой категории
-    const keyboard = new InlineKeyboard();
+    // Генерация кнопок для категорий
     categories.forEach((category: any, index: number) => {
-      // Каждая кнопка отображает имя категории и содержит callback_data "catalogCategory|<categoryId>"
-      keyboard.text(category.name, `catalogCategory|${category.id}`);
-      // Опционально: после каждых двух кнопок делаем перенос строки
-      if ((index + 1) % 2 === 0) {
-        keyboard.row();
-      }
+      inlineKeyboard.text(category.name, `catalogCategory|${category.id}`);
+      if ((index + 1) % 2 === 0) inlineKeyboard.row(); // Новый ряд каждые 2 кнопки
     });
 
-    // Отправляем сообщение с инлайн-клавиатурой и HTML-разметкой
-    await ctx.reply("Please choose a category:", {
-      reply_markup: keyboard,
+    // Отправка сообщения с обложкой и описанием
+    const bannerUrl = block.banner || 'https://kvartiry-tbilisi.ru/images/demo/catalog_banner-1.png';
+    const description = block.description || 'Пожалуйста, выберите категорию:';
+
+    await ctx.replyWithPhoto(bannerUrl, {
+      caption: description,
       parse_mode: 'HTML',
+      reply_markup: inlineKeyboard,
     });
+
+    log('info', `Каталог успешно отображён для пользователя ${ctx.from?.id}`, payload);
   } catch (error: any) {
-    console.error("Error rendering catalog block:", error);
-    await ctx.reply("An error occurred while loading the catalog.", { parse_mode: 'HTML' });
+    log('error', `Ошибка отображения CatalogBlock: ${error.message}`, payload);
+    await ctx.reply('Произошла ошибка при загрузке каталога.');
   }
 }

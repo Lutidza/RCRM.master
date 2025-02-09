@@ -841,6 +841,10 @@ export interface MessageBlock {
  */
 export interface ButtonBlock {
   blockType: 'button-blocks';
+  /**
+   * Введите описание для кнопочного блока, которое будет отображаться в Telegram вместо фиксированного текста "Please choose an option:".
+   */
+  description?: string | null;
   buttons?:
     | {
         /**
@@ -895,6 +899,10 @@ export interface LayoutBlock {
    * Если включено, перед отображением лейаута будут удалены все предыдущие сообщения пользователя.
    */
   clearPreviousMessages?: boolean | null;
+  /**
+   * Добавьте описание для этого лейаута (опционально).
+   */
+  description?: string | null;
   id?: string | null;
   blockName?: string | null;
 }
@@ -934,6 +942,14 @@ export interface CatalogBlock {
    */
   alias: string;
   /**
+   * Введите описание каталога, которое будет отображаться в Telegram вместо фиксированного текста.
+   */
+  description?: string | null;
+  /**
+   * Выберите режим отображения каталога: только подкатегории, только товары, или все сразу.
+   */
+  displayMode?: ('subcategories' | 'products' | 'all') | null;
+  /**
    * Опционально выберите локацию для фильтрации каталога (одна локация).
    */
   locationFilter?: (number | null) | Location;
@@ -945,6 +961,10 @@ export interface CatalogBlock {
    * Если включено, перед выводом каталога будут удалены все предыдущие сообщения пользователя.
    */
   clearPreviousMessages?: boolean | null;
+  /**
+   * Число товаров на одной странице. По умолчанию 3.
+   */
+  itemsPerPage?: number | null;
   id?: string | null;
   blockName?: string | null;
 }
@@ -2123,6 +2143,7 @@ export interface MessageBlockSelect<T extends boolean = true> {
  */
 export interface ButtonBlockSelect<T extends boolean = true> {
   blockType?: T;
+  description?: T;
   buttons?:
     | T
     | {
@@ -2154,6 +2175,7 @@ export interface LayoutBlockSelect<T extends boolean = true> {
         'catalog-blocks'?: T | CatalogBlockSelect<T>;
       };
   clearPreviousMessages?: T;
+  description?: T;
   id?: T;
   blockName?: T;
 }
@@ -2177,9 +2199,12 @@ export interface CatalogBlockSelect<T extends boolean = true> {
   blockType?: T;
   name?: T;
   alias?: T;
+  description?: T;
+  displayMode?: T;
   locationFilter?: T;
   categoryFilter?: T;
   clearPreviousMessages?: T;
+  itemsPerPage?: T;
   id?: T;
   blockName?: T;
 }

@@ -1,40 +1,50 @@
-# ProcessClient Utility Documentation
+# README: Client Utilities in Telegram API Plugin
 
 ## Overview
-
-The `processClient` utility is responsible for handling client records in the `clients` collection within Payload CMS. It searches for a client by their Telegram ID (`telegram_id`) and updates their record if found. If no client exists, it creates a new record with default properties. The function ensures that clients are correctly associated with bots and that their visit count is incremented with each interaction.
-
-This utility prevents duplicate entries, ensures data consistency, and improves tracking of Telegram bot users.
+The `ClientUtils` module within the Telegram API Plugin is designed to handle all client-related operations. This includes processing client records, managing client statuses (e.g., banned), and ensuring data consistency between Telegram bots and the Payload CMS. These utilities form the backbone of the system's client management, ensuring smooth interaction tracking and robust error handling.
 
 ## Features
+### 1. Modular Architecture
+- **Independent utilities**: Each function has a single responsibility, allowing for easier debugging and testing.
+- **Reusability**: Functions are reusable across different parts of the plugin.
+- **Scalability**: Modular design allows for seamless integration of new features.
 
-### **Client Lookup**
-- Searches the `clients` collection for a record with the matching `telegram_id`.
-- Limits the search to a single result for efficiency.
+### 2. Comprehensive Client Management
+- Processes client records (`processClient`) and updates them in the `clients` collection.
+- Ensures proper status handling, such as identifying and blocking banned clients (`bannedClientHook`).
 
-### **Client Update**
-- If a client exists:
-  - Updates the `bots` field to include the current bot if it is not already listed.
-  - Ensures correct bot association by checking both direct values and object references.
-  - Increments `total_visit` by `1`.
-  - Updates `first_name`, `last_name`, `user_name`, and `last_visit`.
-  - Prevents unnecessary database writes if no changes are needed.
+### 3. Robust Error Handling
+- Detailed error logging with the `Logger` utility.
+- Graceful degradation ensures that unexpected errors do not disrupt bot functionality.
 
-### **Client Creation**
-- If no client is found, a new record is created with:
-  - `total_visit` initialized to `1`.
-  - `bots` field containing the current bot ID.
-  - Default values assigned for missing fields.
-  - `enabled` status set to `"enabled"`.
-  - Ensures compatibility with Payload CMS by including all required fields.
+## Included Utilities
+### 1. `processClient`
+#### Description
+Handles the creation and updating of client records in the Payload CMS `clients` collection.
 
-### **Error Handling**
-- Logs all errors and unexpected behaviors to assist debugging.
-- Returns a default response `{ total_visit: 1 }` if an error occurs.
-- Uses `try-catch` blocks to prevent application crashes.
+#### Key Features
+- Searches for a client by their Telegram ID (`telegram_id`).
+- Updates or creates client records with relevant data:
+  - `bots` field is updated to include the bot interacting with the client.
+  - `total_visit` is incremented on each interaction.
+  - Client details (`first_name`, `last_name`, `username`) are updated if necessary.
+- Ensures data consistency and prevents unnecessary writes to the database.
 
-## Function Signature
+#### Workflow
+1. **Search for existing client**:
+  - Queries the `clients` collection for a record matching the `telegram_id`.
+  - If found, updates the record.
+2. **Update bot associations**:
+  - Ensures the current bot ID is included in the `bots` array.
+  - Prevents duplicate bot entries.
+3. **Increment visit count**:
+  - Updates `total_visit` and `last_visit` fields.
+  - Ensures other fields are updated only if they have changed.
+4. **Create new client**:
+  - Assigns default values (`enabled` status, `total_visit: 1`, etc.).
+  - Ensures compliance with Payload CMS schema.
 
+#### Function Signature
 ```typescript
 async function processClient(
   payload: Payload,
@@ -44,65 +54,106 @@ async function processClient(
 ): Promise<any> {}
 ```
 
-## Parameters
+#### Key Considerations
+- Prevents duplicate entries in the `clients` collection.
+- Optimized for performance with indexed queries and minimal writes.
 
-- **payload**: An instance of Payload CMS, used for database operations.
-- **telegramId**: The unique Telegram user identifier.
-- **botId**: The identifier of the bot associated with the client.
-- **fromData**: Object containing the client's Telegram user data (`first_name`, `last_name`, `username`).
+### 2. `bannedClientHook`
+#### Description
+Middleware for checking whether a client is banned. If a client is banned, the middleware:
+- Sends a notification to the client.
+- Clears their session.
+- Stops further processing of the update.
 
-## Workflow
+#### Key Features
+- Searches for the client in the `clients` collection by `telegram_id`.
+- Checks the `status` field:
+  - If the status alias is "banned", the client is blocked.
+  - Supports both object and string representations of the `status` field.
+- Logs important details about the client for debugging and monitoring.
 
-1. **Check for existing client**:
-  - Searches `clients` by `telegram_id`.
-  - If found, updates the existing record.
-2. **Update bots association**:
-  - Ensures the current `botId` is in the `bots` array.
-  - Updates `bots` field if necessary.
-3. **Increment visit count**:
-  - Updates `total_visit`, `last_visit`, and user details.
-  - Prevents unnecessary writes if data is unchanged.
-4. **Create new client if necessary**:
-  - Assigns default values and creates a new client record.
-  - Ensures required fields are set properly.
+#### Workflow
+1. **Retrieve client record**:
+  - Queries the `clients` collection for the client by `telegram_id`.
+2. **Check client status**:
+  - If the status alias is "banned", the client is identified as banned.
+  - Sends a notification and clears the session.
+3. **Continue processing**:
+  - If the client is not banned, passes control to the next middleware.
 
-## Implementation Details
+#### Function Signature
+```typescript
+export function bannedClientHook(payload: Payload): Middleware<BotContext> {}
+```
 
-- **Ensuring Data Integrity**:
-  - The function checks whether `bots` is stored as an array or a single value and converts it accordingly.
-  - Prevents duplicate bot IDs from being added.
-  - Updates only necessary fields to minimize unnecessary database writes.
-
-- **Optimized Querying**:
-  - Uses indexed fields (`telegram_id`) for fast lookups.
-  - Limits queries to `1` document where applicable.
-
-- **Ensuring Compatibility**:
-  - Matches Payload CMS 3 standards.
-  - Uses correct field types and structures to prevent validation errors.
+#### Key Considerations
+- Designed as middleware for the `Grammy` framework.
+- Extensible to support additional client restrictions or statuses.
 
 ## File Structure
-
 ```
 src/
 └── plugins/
     └── TelegramAPI/
-        ├── index.ts                    // Main Telegram API integration
-        └── utils/
-            └── processClient.ts        // ProcessClient utility file
+        ├── utils/
+        │   ├── ClientUtils/
+        │   │   ├── processClient.ts        // Handles client processing
+        │   │   ├── bannedClient.ts         // Checks for banned clients
+        │   │   └── README.md               // Documentation for ClientUtils
+        │   └── SystemUtils/
+        │       └── Logger.ts              // Utility for logging
+        ├── index.ts                        // Main Telegram API integration
 ```
 
+## Example Usage
+### 1. Integrating `processClient`
+```typescript
+import { processClient } from '@/plugins/TelegramAPI/utils/ClientUtils/processClient';
+
+const client = await processClient(payload, telegramId, botId, fromData);
+if (client.isBanned) {
+  console.log('Client is banned');
+}
+```
+
+### 2. Using `bannedClientHook` in the Bot Pipeline
+```typescript
+import { bannedClientHook } from '@/plugins/TelegramAPI/utils/ClientUtils/bannedClient';
+
+bot.use(bannedClientHook(payload));
+```
+
+## Logging
+### 1. Standardized Logging
+The `Logger` utility (`src/plugins/TelegramAPI/utils/SystemUtils/Logger.ts`) is used across all utilities for consistent log formatting and output.
+
+### 2. Log Examples
+```
+[2025-02-10T12:00:00.000Z] [INFO] Client processed successfully.
+[2025-02-10T12:00:00.000Z] [ERROR] Failed to retrieve client record.
+```
+
+## Next Steps & Recommendations
+### Enhance `bannedClientHook`
+- Add support for temporary bans with expiration times.
+- Notify admins when a client is banned.
+
+### Expand `processClient`
+- Add support for tracking additional client activities.
+- Implement caching to reduce database load for frequently accessed clients.
+
+### Centralized Configuration
+- Move status aliases (e.g., "banned") to a configuration file for easier management.
+
 ## Version History
+### Client Utilities
+- **Version 1.0.0**: Initial implementation of `processClient`.
+- **Version 1.0.6**: Improved bot association handling.
+- **Version 1.1.2**: Enhanced error handling and logging.
 
-- **Version 1.0.0**: Initial implementation.
-- **Version 1.0.6**: Ensured correct bot association.
-- **Version 1.1.0**: Optimized bot array handling, removed redundant checks.
-- **Version 1.1.1**: Fixed potential `undefined` access on `existingClient`.
-- **Version 1.1.2**: Improved error handling and optimized queries.
+### Banned Client Hook
+- **Version 1.0.1**: Initial implementation.
+- **Version 1.0.3**: Moved to `ClientUtils` and updated logging.
 
-## Conclusion
-
-The `processClient` utility is a core part of the Telegram API integration, ensuring that client records are accurately maintained. By handling bot associations, visit tracking, and data consistency, this function plays a vital role in managing client interactions efficiently.
-
-It is optimized for performance, adheres to best practices in Payload CMS, and prevents unnecessary database writes. Proper logging and validation make it robust for production use.
+This document provides a comprehensive overview of client utilities in the Telegram API plugin. It serves as a starting point for developers working on client-related functionality.
 
