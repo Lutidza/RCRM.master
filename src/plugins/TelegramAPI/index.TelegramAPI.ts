@@ -1,4 +1,4 @@
-// Path: src/plugins/TelegramAPI/index.ts
+// Path: src/plugins/TelegramAPI/index.TelegramAPI.ts
 // Version: 5.7.0
 // Рефакторинг: Используется единая логика инициализации ботов из файла initializeBots.ts.
 // Коллекции Bots и Clients регистрируются в плагине.

@@ -1,4 +1,4 @@
-// 📌 Файл: src/collections/TelegramAPI/Settings/Labels/LabelsGroups/index.ts
+// 📌 Файл: src/collections/TelegramAPI/Settings/Labels/LabelsGroups/index.TelegramAPI.ts
 // 📌 Версия: 1.0.1
 
 import type { CollectionConfig } from 'payload';

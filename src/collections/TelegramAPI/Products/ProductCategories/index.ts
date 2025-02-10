@@ -1,4 +1,4 @@
-// 📌 Файл: src/collections/TelegramAPI/Products/ProductCategories/index.ts
+// 📌 Файл: src/collections/TelegramAPI/Products/ProductCategories/index.TelegramAPI.ts
 // 📌 Версия: 1.1.0
 
 import type { CollectionConfig } from 'payload';

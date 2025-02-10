@@ -1,4 +1,4 @@
-// Path: src/collections/TelegramAPI/Clients/index.ts
+// Path: src/collections/TelegramAPI/Clients/index.TelegramAPI.ts
 // Version: 3.3.1
 //
 // The Clients collection stores information about Telegram users associated with bots.

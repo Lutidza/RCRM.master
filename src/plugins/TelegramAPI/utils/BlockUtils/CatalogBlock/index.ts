@@ -1,4 +1,4 @@
-// 📌 Путь: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/index.ts
+// 📌 Путь: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/index.TelegramAPI.ts
 // 📌 Версия: 1.2.0
 //
 // [CHANGELOG]

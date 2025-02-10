@@ -1,4 +1,4 @@
-// Path: src/plugins/TelegramAPI/utils/BlockUtils/MessageBlock/index.ts
+// Path: src/plugins/TelegramAPI/utils/BlockUtils/MessageBlock/index.TelegramAPI.ts
 // Version: 1.0.9
 //
 // This utility processes a MessageBlock by sending its content using HTML formatting via grammY.

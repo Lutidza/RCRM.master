@@ -18,7 +18,7 @@ import { defaultLexical } from '@/fields/defaultLexical'
 import { getServerSideURL } from './utilities/getURL'
 
 // ===== Импорт плагина TelegramAPI =====
-import TelegramAPIPlugin from './plugins/TelegramAPI'
+import TelegramAPIPlugin from './plugins/TelegramAPI/index.TelegramAPI'
 import StatusGroups from "@/collections/TelegramAPI/Settings/Statuses/StatusGroups";
 import Statuses from "@/collections/TelegramAPI/Settings/Statuses/Statuses";
 import { Locations } from "@/collections/TelegramAPI/Locations";

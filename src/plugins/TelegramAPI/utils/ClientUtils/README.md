@@ -102,7 +102,7 @@ src/
         │   │   └── README.md               // Documentation for ClientUtils
         │   └── SystemUtils/
         │       └── Logger.ts              // Utility for logging
-        ├── index.ts                        // Main Telegram API integration
+        ├── index.TelegramAPI.ts                        // Main Telegram API integration
 ```
 
 ## Example Usage

@@ -1,4 +1,4 @@
-//src/fields/TelegramAPI/enabledFiled/index.ts
+//src/fields/TelegramAPI/enabledFiled/index.TelegramAPI.ts
 //The Enabled/Disabled field is the document's activity status. It is used in most collections as a standard.
 import type { Field } from 'payload';
 

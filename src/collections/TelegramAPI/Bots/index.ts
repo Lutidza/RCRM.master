@@ -1,4 +1,4 @@
-// Path: src/collections/TelegramAPI/Bots/index.ts
+// Path: src/collections/TelegramAPI/Bots/index.TelegramAPI.ts
 // Version: 3.1.5
 //
 // The Bots collection stores each bot's settings: its name, token, description (for updating the Telegram bot),

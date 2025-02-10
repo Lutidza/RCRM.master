@@ -1,4 +1,4 @@
-// Path: src/collections/TelegramAPI/Settings/Statuses/StatusGroups/index.ts
+// Path: src/collections/TelegramAPI/Settings/Statuses/StatusGroups/index.TelegramAPI.ts
 // Version: 1.0.1
 //
 // The StatusGroups collection stores groups for dynamic statuses. Each group can have multiple statuses.

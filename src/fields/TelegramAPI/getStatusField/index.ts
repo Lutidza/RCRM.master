@@ -1,4 +1,4 @@
-// Path: src/fields/TelegramAPI/getStatusField/index.ts
+// Path: src/fields/TelegramAPI/getStatusField/index.TelegramAPI.ts
 // Version: 1.6.1
 //
 // The status field configuration for the "clients" collection.
