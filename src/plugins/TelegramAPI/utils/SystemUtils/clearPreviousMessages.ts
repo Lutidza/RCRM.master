@@ -27,40 +27,40 @@ export async function clearPreviousMessages(ctx: BotContext): Promise<void> {
   const chatId = ctx.chat.id;
   const messageIds = ctx.session.previousMessages;
 
-  log(
-    'debug',
-    `Начало очистки. Количество сообщений для удаления: ${messageIds.length}. Текущие сообщения: ${JSON.stringify(
-      messageIds
-    )}`
-  );
+  // log(
+  //   'debug',
+  //   `Начало очистки. Количество сообщений для удаления: ${messageIds.length}. Текущие сообщения: ${JSON.stringify(
+  //     messageIds
+  //   )}`
+  // );
 
   try {
     for (const msgId of messageIds) {
       try {
         // Попытка удалить кнопки (reply_markup)
         await ctx.api.editMessageReplyMarkup(chatId, msgId, { reply_markup: undefined });
-        log('debug', `Кнопки из сообщения ${msgId} успешно удалены.`);
+        //log('debug', `Кнопки из сообщения ${msgId} успешно удалены.`);
       } catch (error: any) {
-        log(
-          'debug',
-          `Кнопки из сообщения ${msgId} не найдены или уже удалены: ${error.message}`
-        );
+        // log(
+        //   'debug',
+        //   `Кнопки из сообщения ${msgId} не найдены или уже удалены: ${error.message}`
+        // );
       }
 
       try {
         // Удаление самого сообщения
         await ctx.api.deleteMessage(chatId, msgId);
-        log('debug', `Сообщение ${msgId} успешно удалено.`);
+        //log('debug', `Сообщение ${msgId} успешно удалено.`);
       } catch (error: any) {
-        log('error', `Ошибка удаления сообщения ${msgId}: ${error.message}`);
+        //log('error', `Ошибка удаления сообщения ${msgId}: ${error.message}`);
       }
     }
   } catch (err: any) {
-    log('error', `Ошибка при очистке сообщений: ${err.message}`);
+    //log('error', `Ошибка при очистке сообщений: ${err.message}`);
   } finally {
     // Очищаем массив сообщений
     ctx.session.previousMessages = [];
-    log('debug', `Очистка завершена. Список сообщений в сессии очищен.`);
+    //log('debug', `Очистка завершена. Список сообщений в сессии очищен.`);
   }
 }
 
@@ -71,19 +71,19 @@ export async function clearPreviousMessages(ctx: BotContext): Promise<void> {
  */
 export function storeMessageId(ctx: BotContext, messageId: number): void {
   if (!messageId) {
-    log('error', `storeMessageId: Передан некорректный messageId: ${messageId}`);
+    //log('error', `storeMessageId: Передан некорректный messageId: ${messageId}`);
     return;
   }
 
   if (ctx.session && Array.isArray(ctx.session.previousMessages)) {
     ctx.session.previousMessages.push(messageId);
-    log(
-      'debug',
-      `storeMessageId: Сообщение ${messageId} добавлено в сессию. Текущие сообщения: ${JSON.stringify(
-        ctx.session.previousMessages
-      )}`
-    );
+    // log(
+    //   'debug',
+    //   `storeMessageId: Сообщение ${messageId} добавлено в сессию. Текущие сообщения: ${JSON.stringify(
+    //     ctx.session.previousMessages
+    //   )}`
+    // );
   } else {
-    log('error', `storeMessageId: Не удалось сохранить сообщение ${messageId} в сессию.`);
+    //log('error', `storeMessageId: Не удалось сохранить сообщение ${messageId} в сессию.`);
   }
 }

@@ -1,31 +1,40 @@
-// 📌 Путь: src/plugins/TelegramAPI/utils/processClient.ts
-// 📌 Версия: 1.2.1
+// Path: src/plugins/TelegramAPI/utils/ClientUtils/processClient.ts
+// Version: 1.3.5
 //
 // [CHANGELOG]
-// - Исправлена ошибка TS18048, связанная с потенциальным undefined для existingClient.
-// - Улучшена типизация и добавлены явные утверждения типов.
-
+// - При создании нового клиента поле status устанавливается как null, что checkClientStatus интерпретирует как "new".
+// - Добавлено логирование значения client.status после создания/обновления клиента.
+// - Нормализовано поле bots с дополнительными проверками для устранения ошибки TS2532.
+// - Поле status не изменяется ботом – изменение статуса происходит только через админ-панель.
 import type { Payload } from 'payload';
-import { checkClientStatus } from '@/plugins/TelegramAPI/utils/ClientUtils/checkClientStatus';
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+import { checkClientStatus } from './checkClientStatus';
+
+interface FromData {
+  first_name?: string;
+  last_name?: string;
+  username?: string;
+}
 
 /**
- * Обработка клиента в коллекции "clients".
- * @param {Payload} payload - Экземпляр Payload CMS.
- * @param {number} telegramId - Telegram ID пользователя.
- * @param {number} botId - Идентификатор бота.
- * @param {any} fromData - Данные пользователя из Telegram (имя, фамилия, username).
- * @returns {Promise<any>} Обновлённые или созданные данные клиента.
+ * Обрабатывает клиента в коллекции "clients".
+ * Если клиент не найден, создаётся новый с полем status равным null,
+ * что checkClientStatus интерпретирует как "new".
+ * @param payload - Экземпляр Payload CMS.
+ * @param telegramId - Telegram ID пользователя.
+ * @param botId - Идентификатор бота.
+ * @param fromData - Данные пользователя из Telegram (first_name, last_name, username).
+ * @returns Обновлённые или созданные данные клиента.
  */
 export async function processClient(
   payload: Payload,
   telegramId: number,
   botId: number,
-  fromData: any
+  fromData: FromData
 ): Promise<any> {
   try {
-    console.log(`[processClient] Searching for client with telegram_id=${telegramId} and bot=${botId}`);
+    log('info', `[processClient] Searching for client with telegram_id=${telegramId} and bot=${botId}`, payload);
 
-    // Поиск существующего клиента
     const { docs } = await payload.find({
       collection: 'clients',
       where: { telegram_id: { equals: telegramId } },
@@ -35,9 +44,7 @@ export async function processClient(
     let client: any;
 
     if (!docs || docs.length === 0) {
-      console.log("[processClient] No existing client found, creating a new one...");
-
-      // Создаём нового клиента
+      log('info', "[processClient] No existing client found, creating a new one...", payload);
       client = await payload.create({
         collection: 'clients',
         data: {
@@ -48,26 +55,24 @@ export async function processClient(
           user_name: fromData.username || 'anonymous_user',
           total_visit: 1,
           last_visit: new Date().toISOString(),
-          enabled: "enabled", // Совместимость с Payload CMS
+          enabled: "enabled",
+          status: null,  // Статус не установлен – checkClientStatus вернёт "new"
         },
       });
     } else {
-      const existingClient = docs[0]!; // Утверждаем, что docs[0] существует
-
-      console.log(`[processClient] Client found: ID=${existingClient.id}`);
-
-      // Нормализация поля bots
+      const existingClient = docs[0]!;
+      log('info', `[processClient] Client found: ID=${existingClient.id}`, payload);
       let botsArray: any[] = Array.isArray(existingClient.bots)
         ? existingClient.bots
         : existingClient.bots ? [existingClient.bots] : [];
-
-      // Добавляем botId, если он отсутствует
-      if (!botsArray.some(b => (typeof b === 'object' ? b.id.toString() === botId.toString() : b.toString() === botId.toString()))) {
+      if (!botsArray.some(b =>
+        b != null && typeof b === 'object'
+          ? b.id !== undefined && b.id.toString() === botId.toString()
+          : b != null && b.toString() === botId.toString()
+      )) {
         botsArray.push(botId);
-        console.log(`[processClient] Bot ${botId} added to client ${existingClient.id}`);
+        log('info', `[processClient] Bot ${botId} added to client ${existingClient.id}`, payload);
       }
-
-      // Обновляем клиента
       client = await payload.update({
         collection: 'clients',
         id: existingClient.id,
@@ -82,13 +87,13 @@ export async function processClient(
       });
     }
 
-    // Проверяем статус клиента (используем checkClientStatus)
+    log('debug', `[processClient] Client status: ${client.status}`, payload);
     const statusAlias = await checkClientStatus(payload, client.status);
+    log('debug', `[processClient] Retrieved status alias: ${statusAlias}`, payload);
     const isBanned = statusAlias === 'banned';
 
     if (isBanned) {
-      console.log(`[processClient] Client ID=${client.id} is banned. Updating status...`);
-      // Обновляем клиента, отключая его
+      log('info', `[processClient] Client ID=${client.id} is banned. Updating status...`, payload);
       client = await payload.update({
         collection: 'clients',
         id: client.id,
@@ -103,7 +108,7 @@ export async function processClient(
 
     return client;
   } catch (error: any) {
-    console.error("[processClient] Error processing client:", error);
+    log('error', `[processClient] Error processing client: ${error.message}`, payload);
     return { total_visit: 1 };
   }
 }

@@ -1,29 +1,29 @@
-// 📌 Путь: src/plugins/TelegramAPI/utils/ClientUtils/checkClientStatus.ts
-// 📌 Версия: 1.0.0
+// Path: src/plugins/TelegramAPI/utils/ClientUtils/checkClientStatus.ts
+// Version: 1.1.5
 //
 // [CHANGELOG]
-// - Вынесена логика проверки статуса клиента из `bannedClient` в отдельную функцию.
-// - Оптимизирована обработка статусов.
+// - Добавлена поддержка числовых значений в поле status.
+// - Если status равен undefined или null, возвращается "new" как значение по умолчанию.
+// - Если status – объект с полем alias, возвращается alias; если статус – число или строка, выполняется запрос к коллекции "statuses".
+// - Используется единый логгер log для отладки.
 
 import type { Payload } from 'payload';
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
 
-/**
- * Проверяет статус клиента и возвращает его alias.
- * @param payload - Экземпляр Payload CMS.
- * @param status - Поле `status` клиента (может быть объектом или идентификатором).
- * @returns {Promise<string | null>} Возвращает alias статуса клиента или null, если статус отсутствует.
- */
 export async function checkClientStatus(
   payload: Payload,
   status: any
 ): Promise<string | null> {
   try {
-    if (typeof status === 'object' && status !== null) {
-      // Если статус уже содержит alias
+    if (status === undefined || status === null) {
+      log('debug', 'checkClientStatus: status is undefined or null, defaulting to "new"');
+      return "new";
+    }
+    // Если статус является объектом
+    if (typeof status === 'object') {
       if ('alias' in status && typeof status.alias === 'string') {
         return status.alias;
       }
-      // Если статус передан как объект с id
       if ('id' in status) {
         const statusResult = await payload.find({
           collection: 'statuses',
@@ -31,21 +31,21 @@ export async function checkClientStatus(
           limit: 1,
         });
         const statusDoc = statusResult.docs[0];
-        return statusDoc?.alias || null;
+        return statusDoc?.alias || "new";
       }
-    } else if (typeof status === 'string') {
-      // Если статус передан как идентификатор
+    }
+    // Если статус хранится как число или строка (ID)
+    if (typeof status === 'number' || typeof status === 'string') {
       const statusResult = await payload.find({
         collection: 'statuses',
         where: { id: { equals: status } },
         limit: 1,
       });
       const statusDoc = statusResult.docs[0];
-      return statusDoc?.alias || null;
+      return statusDoc?.alias || "new";
     }
   } catch (error: any) {
-    console.error('❌ Ошибка в checkClientStatus:', error.message);
+    log('error', `❌ Ошибка в checkClientStatus: ${error.message}`, payload);
   }
-
-  return null;
+  return "new";
 }

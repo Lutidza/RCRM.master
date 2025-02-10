@@ -1,24 +1,67 @@
-// 📌 Путь: src/plugins/TelegramAPI/utils/BotUtils/initializeBots.ts
-// 📌 Версия: 1.2.0
+// Path: src/plugins/TelegramAPI/utils/BotUtils/initializeBots.ts
+// Version: 1.4.1
 //
 // [CHANGELOG]
-// - Интегрирован bannedClientHook для проверки статуса клиента.
-// - Добавлена обработка исключений для функций sendLayoutBlock и handleCatalogEvent.
-// - Актуализированы комментарии и логирование.
-
+// - Использование BotConfig для настройки ботов.
+// - Обработка команды /start: вызывается processClient, флаг isBanned сохраняется в сессию.
+// - Middleware bannedClientHook подключён для проверки статуса клиента.
+// - Для нового клиента (total_visit === 1) выбирается layout с alias "start_first_visit" через BotConfig.
 import type { Payload } from 'payload';
 import { Bot as TelegramBot } from 'grammy';
 import { session, Context, SessionFlavor } from 'grammy';
 import { handleCatalogEvent } from '@/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/CatalogEventHandlers';
-import { sendLayoutBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/LayoutBlock/LayoutBlock'; // Обработчик лейаутов
-import { bannedClientHook } from '@/plugins/TelegramAPI/utils/ClientUtils/bannedClient'; // Хук проверки статуса клиента
+import { sendLayoutBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/LayoutBlock/LayoutBlock';
+import { bannedClientHook } from '@/plugins/TelegramAPI/utils/ClientUtils/bannedClient';
 import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+import { processMessageBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/MessageBlock/index';
+import { renderCatalogBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/renderCatalogBlock';
+import { BotConfig } from '@/plugins/TelegramAPI/utils/BotUtils/BotConfig';
+import { processClient } from '@/plugins/TelegramAPI/utils/ClientUtils/processClient';
 
 export interface SessionData {
   previousMessages: number[];
+  isBanned?: boolean;
 }
 
 export type BotContext = Context & SessionFlavor<SessionData>;
+
+export interface UnifiedBotInterface {
+  blocks?: any[];
+  defaultStartLayout: string;
+  defaultFirstVisitLayout: string;
+  total_visit?: number;
+}
+
+export interface UnifiedBotConfig {
+  id: number;
+  name: string;
+  token: string;
+  description?: string;
+  enabled: string;
+  initialization_status: string;
+  last_initialized?: string;
+  interface?: UnifiedBotInterface;
+}
+
+export function createUnifiedBotConfig(rawBotData: any): UnifiedBotConfig {
+  return {
+    id: rawBotData.id,
+    name: rawBotData.name,
+    token: rawBotData.token,
+    description: rawBotData.description,
+    enabled: rawBotData.enabled,
+    initialization_status: rawBotData.initialization_status,
+    last_initialized: rawBotData.last_initialized,
+    interface: rawBotData.interface
+      ? {
+        blocks: Array.isArray(rawBotData.interface.blocks) ? rawBotData.interface.blocks : [],
+        defaultStartLayout: rawBotData.interface.defaultStartLayout,
+        defaultFirstVisitLayout: rawBotData.interface.defaultFirstVisitLayout,
+        total_visit: typeof rawBotData.interface.total_visit === 'number' ? rawBotData.interface.total_visit : 0,
+      }
+      : undefined,
+  };
+}
 
 export async function initializeBots(payload: Payload): Promise<void> {
   try {
@@ -28,70 +71,63 @@ export async function initializeBots(payload: Payload): Promise<void> {
       where: { enabled: { equals: 'enabled' } },
       limit: 999,
     });
-
     log('info', `Найдено ${bots.length} ботов для инициализации.`, payload);
 
     for (const botData of bots) {
-      await initBot(payload, botData);
+      const unifiedBotData = createUnifiedBotConfig(botData);
+      const botConfig = new BotConfig(unifiedBotData);
+
+      console.log('BotConfig:', JSON.stringify(botConfig, null, 2));
+      await initBot(payload, botConfig);
     }
   } catch (error: any) {
     log('error', `Ошибка при инициализации ботов: ${error.message}`, payload);
   }
 }
 
-async function initBot(payload: Payload, botData: any): Promise<void> {
+async function initBot(payload: Payload, botConfig: BotConfig): Promise<void> {
   try {
-    if (!botData.token) {
-      log('error', `Пропущен бот "${botData.name}": отсутствует токен.`, payload);
+    if (!botConfig.token) {
+      log('error', `Пропущен бот "${botConfig.name}": отсутствует токен.`, payload);
       return;
     }
-
-    const bot = new TelegramBot<BotContext>(botData.token);
+    const bot = new TelegramBot<BotContext>(botConfig.token);
 
     bot.use(
       session<SessionData, BotContext>({
         initial: () => ({ previousMessages: [] }),
-      }),
+      })
     );
 
-    // Хук проверки заблокированных клиентов
+    // Подключаем middleware для проверки забаненности клиента (из bannedClient.ts)
     bot.use(bannedClientHook(payload));
 
     // Обработка команды /start
     bot.command('start', async (ctx) => {
       try {
         log('info', `Получена команда /start от пользователя ${ctx.from?.id}.`, payload);
-
         const telegramId = ctx.from?.id;
         if (!telegramId) {
           await ctx.reply('Ошибка: Telegram ID не найден.');
           return;
         }
-
-        const numericBotId: number = botData.id;
-
-        const firstVisitAlias = botData.interface?.defaultFirstVisitLayout || 'start_first_visit';
-        const startAlias = botData.interface?.defaultStartLayout || 'start';
-        const layoutAlias = botData.interface?.total_visit === 1 ? firstVisitAlias : startAlias;
-
+        const configInstance = botConfig instanceof BotConfig ? botConfig : new BotConfig(botConfig);
+        const YOUR_BOT_ID = botConfig.id;
+        const client = await processClient(payload, telegramId, YOUR_BOT_ID, {
+          first_name: ctx.from?.first_name,
+          last_name: ctx.from?.last_name,
+          username: ctx.from?.username,
+        });
+        ctx.session.isBanned = client.isBanned;
+        const layoutAlias = configInstance.currentLayoutAlias;
         log('info', `Выбран layoutAlias: ${layoutAlias}`, payload);
-
-        const layoutBlock = botData.interface?.blocks?.find(
-          (block: any) => block.alias === layoutAlias,
-        );
-
-        if (!layoutBlock) {
-          await ctx.reply(`Ошибка: Layout "${layoutAlias}" не найден.`);
-          return;
-        }
-
-        await sendLayoutBlock(ctx, layoutBlock, payload);
+        await sendLayoutBlock(ctx, configInstance, payload);
       } catch (error: any) {
         log('error', `Ошибка обработки команды /start: ${error.message}`, payload);
       }
     });
 
-    // Обработка callback_query
+    // Обработка callback‑запросов
     bot.on('callback_query:data', async (ctx) => {
       try {
         const data = ctx.callbackQuery?.data;
@@ -99,52 +135,53 @@ async function initBot(payload: Payload, botData: any): Promise<void> {
           await ctx.reply('Ошибка: данные callback отсутствуют.');
           return;
         }
-
         const [cbType, callbackAlias] = data.split('|');
         if (!cbType || !callbackAlias) {
           await ctx.reply('Некорректный формат callback.');
           return;
         }
-
         switch (cbType) {
           case 'layout': {
-            const layoutBlock = botData.interface?.blocks?.find(
-              (block: any) => block.alias === callbackAlias,
-            );
-            if (!layoutBlock) {
-              await ctx.reply(`Лейаут с alias "${callbackAlias}" не найден.`);
-              return;
-            }
-            await sendLayoutBlock(ctx, layoutBlock, payload);
+            await sendLayoutBlock(ctx, botConfig, payload, callbackAlias);
+            log('info', `Layout "${callbackAlias}" успешно обработан.`, payload);
             break;
           }
-          default:
+          case 'message': {
+            await processMessageBlock(ctx, { message: callbackAlias });
+            log('info', `MessageBlock "${callbackAlias}" успешно обработан.`, payload);
+            break;
+          }
+          case 'catalog': {
+            await renderCatalogBlock(ctx, { alias: callbackAlias }, payload);
+            log('info', `CatalogBlock "${callbackAlias}" успешно обработан.`, payload);
+            break;
+          }
+          default: {
             await handleCatalogEvent(cbType, callbackAlias, '', ctx, payload);
+            log('info', `Callback "${cbType}|${callbackAlias}" обработан через handleCatalogEvent.`, payload);
+          }
         }
-
         await ctx.answerCallbackQuery();
-        log('info', `Callback обработан: ${cbType}|${callbackAlias}`, payload);
       } catch (error: any) {
         log('error', `Ошибка обработки callback_query: ${error.message}`, payload);
       }
     });
 
     bot.start();
-    log('info', `🤖 Бот "${botData.name}" успешно запущен.`, payload);
-
+    log('info', `🤖 Бот "${botConfig.name}" успешно запущен.`, payload);
     await payload.update({
       collection: 'bots',
-      id: botData.id,
+      id: botConfig.id,
       data: {
         initialization_status: 'Initialized',
         last_initialized: new Date().toISOString(),
       },
     });
   } catch (error: any) {
-    log('error', `Ошибка при инициализации бота "${botData.name}": ${error.message}`, payload);
+    log('error', `Ошибка при инициализации бота "${botConfig.name}": ${error.message}`, payload);
     await payload.update({
       collection: 'bots',
-      id: botData.id,
+      id: botConfig.id,
       data: { initialization_status: 'Error' },
     });
   }
