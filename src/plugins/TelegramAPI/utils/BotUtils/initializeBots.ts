@@ -1,11 +1,13 @@
 // Path: src/plugins/TelegramAPI/utils/BotUtils/initializeBots.ts
-// Version: 1.4.1
+// Version: 1.4.2
 //
 // [CHANGELOG]
 // - Использование BotConfig для настройки ботов.
 // - Обработка команды /start: вызывается processClient, флаг isBanned сохраняется в сессию.
+// - Выбор layout-а теперь производится на стороне клиента, основываясь на поле total_visit документа клиента:
+//   если total_visit === 1, используется defaultFirstVisitLayout, иначе – defaultStartLayout.
 // - Middleware bannedClientHook подключён для проверки статуса клиента.
-// - Для нового клиента (total_visit === 1) выбирается layout с alias "start_first_visit" через BotConfig.
+
 import type { Payload } from 'payload';
 import { Bot as TelegramBot } from 'grammy';
 import { session, Context, SessionFlavor } from 'grammy';
@@ -111,17 +113,24 @@ async function initBot(payload: Payload, botConfig: BotConfig): Promise<void> {
           await ctx.reply('Ошибка: Telegram ID не найден.');
           return;
         }
+        // Восстанавливаем экземпляр BotConfig, если требуется
         const configInstance = botConfig instanceof BotConfig ? botConfig : new BotConfig(botConfig);
         const YOUR_BOT_ID = botConfig.id;
+        // Создаем или обновляем клиента и получаем документ клиента
         const client = await processClient(payload, telegramId, YOUR_BOT_ID, {
           first_name: ctx.from?.first_name,
           last_name: ctx.from?.last_name,
           username: ctx.from?.username,
         });
+        // Сохраняем флаг isBanned в сессию
         ctx.session.isBanned = client.isBanned;
-        const layoutAlias = configInstance.currentLayoutAlias;
-        log('info', `Выбран layoutAlias: ${layoutAlias}`, payload);
-        await sendLayoutBlock(ctx, configInstance, payload);
+        // Определяем layout alias на основе данных клиента: если total_visit === 1, используем defaultFirstVisitLayout, иначе defaultStartLayout
+        const layoutAlias = client.total_visit === 1
+          ? configInstance.interface.defaultFirstVisitLayout
+          : configInstance.interface.defaultStartLayout;
+        log('info', `Выбран layoutAlias: ${layoutAlias} (client.total_visit=${client.total_visit})`, payload);
+        // Передаем aliasOverride в sendLayoutBlock, чтобы выбрать нужный layout
+        await sendLayoutBlock(ctx, configInstance, payload, layoutAlias);
       } catch (error: any) {
         log('error', `Ошибка обработки команды /start: ${error.message}`, payload);
       }

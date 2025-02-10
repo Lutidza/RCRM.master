@@ -1,8 +1,9 @@
 // Path: src/plugins/TelegramAPI/utils/ClientUtils/processClient.ts
-// Version: 1.3.5
+// Version: 1.3.8
 //
 // [CHANGELOG]
-// - При создании нового клиента поле status устанавливается как null, что checkClientStatus интерпретирует как "new".
+// - При создании нового клиента поле status не передаётся вовсе, позволяя установить значение по умолчанию
+//   на стороне коллекции (через defaultValue или beforeChange-хук).
 // - Добавлено логирование значения client.status после создания/обновления клиента.
 // - Нормализовано поле bots с дополнительными проверками для устранения ошибки TS2532.
 // - Поле status не изменяется ботом – изменение статуса происходит только через админ-панель.
@@ -18,8 +19,9 @@ interface FromData {
 
 /**
  * Обрабатывает клиента в коллекции "clients".
- * Если клиент не найден, создаётся новый с полем status равным null,
- * что checkClientStatus интерпретирует как "new".
+ * Если клиент не найден, создаётся новый, при этом поле status не передаётся,
+ * чтобы на стороне коллекции (через defaultValue или beforeChange-хук) было установлено значение по умолчанию.
+ * Если клиент найден, обновляются его данные.
  * @param payload - Экземпляр Payload CMS.
  * @param telegramId - Telegram ID пользователя.
  * @param botId - Идентификатор бота.
@@ -55,8 +57,8 @@ export async function processClient(
           user_name: fromData.username || 'anonymous_user',
           total_visit: 1,
           last_visit: new Date().toISOString(),
-          enabled: "enabled",
-          status: null,  // Статус не установлен – checkClientStatus вернёт "new"
+          enabled: "enabled"
+          // Поле status не передаётся, чтобы вебхук или defaultValue в коллекции установил его автоматически.
         },
       });
     } else {

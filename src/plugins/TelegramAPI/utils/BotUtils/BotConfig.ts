@@ -1,9 +1,8 @@
 // Path: src/plugins/TelegramAPI/utils/BotUtils/BotConfig.ts
-// Version: 1.3.0
-// Рефакторинг: Обновлён конструктор, чтобы гарантировать, что свойство interface всегда содержит
-// необходимые поля (blocks, defaultStartLayout, defaultFirstVisitLayout и total_visit). Это решает проблему,
-// когда вычисляемые свойства (например, currentLayoutAlias) возвращают undefined, хотя данные в базе существуют.
-
+// Version: 1.4.0
+// Рефакторинг: Убрано вычисление текущего layout-алиаса для новых пользователей,
+// так как выбор лейаута теперь производится на стороне клиента.
+// BotConfig теперь служит исключительно для хранения настроек бота.
 import type { UnifiedBotConfig } from './initializeBots';
 
 export class BotConfig {
@@ -30,8 +29,7 @@ export class BotConfig {
     this.enabled = data.enabled;
     this.initialization_status = data.initialization_status;
     this.last_initialized = data.last_initialized;
-    // Если data.interface отсутствует или не содержит необходимых ключей,
-    // устанавливаем значения по умолчанию.
+    // Если data.interface отсутствует или не содержит необходимых ключей, устанавливаем значения по умолчанию.
     if (!data.interface) {
       this.interface = {
         blocks: [],
@@ -40,7 +38,6 @@ export class BotConfig {
         total_visit: 0,
       };
     } else {
-      // Если поле total_visit отсутствует – задаём значение по умолчанию (0)
       this.interface = {
         blocks: Array.isArray(data.interface.blocks) ? data.interface.blocks : [],
         defaultStartLayout: data.interface.defaultStartLayout,
@@ -55,18 +52,8 @@ export class BotConfig {
     return this.token;
   }
 
-  // Вычисляемое поле для определения текущего layout-алиаса.
-  // Если total_visit равен 1 (пользователь новый), возвращается defaultFirstVisitLayout, иначе – defaultStartLayout.
-  get currentLayoutAlias(): string {
-    const { defaultFirstVisitLayout, defaultStartLayout, total_visit } = this.interface;
-    return total_visit === 1 ? defaultFirstVisitLayout : defaultStartLayout;
-  }
-
-  // Вычисляемое поле, которое возвращает конкретный layout-блок из массива блоков интерфейса,
-  // соответствующий текущему layout-алиасу.
-  get currentLayoutBlock(): any | undefined {
-    return this.interface.blocks.find((block: any) => block.alias === this.currentLayoutAlias);
-  }
-
-  // TODO: Добавьте дополнительные виртуальные (computed) поля по необходимости для интеграции с Telegram API.
+  // Убраны вычисляемые свойства currentLayoutAlias и currentLayoutBlock,
+  // поскольку выбор лейаута теперь производится на стороне клиента с учетом данных клиента.
+  // При необходимости можно добавить метод, принимающий параметр (например, clientTotalVisit)
+  // для определения нужного layout-алиаса.
 }
