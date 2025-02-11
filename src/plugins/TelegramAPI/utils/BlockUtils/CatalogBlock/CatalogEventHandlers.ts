@@ -1,28 +1,27 @@
-// 📌 Путь: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/CatalogEventHandlers.ts
-// 📌 Версия: 1.2.0
+// Path: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/CatalogEventHandlers.ts
+// Version: 1.2.6
 //
 // [CHANGELOG]
-// - Убрана избыточная логика из обработчика catalogCategory.
-// - Добавлен вызов renderCategoryItems для обработки события catalogCategory.
-// - Логика кнопки "Загрузить ещё" делегирована в renderCategoryItems.
-
+// - Изменена логика разбора callback‑данных.
+// - Для события "catalogCategory" callback‑данные теперь должны быть в формате: "catalogCategory|<categoryId>|<itemsPerPage>".
+// - Для события "catalogLoadMore" callback‑данные должны быть: "catalogLoadMore|<categoryId>|<nextPage>|<itemsPerPage>".
+// - Обработчик извлекает параметры из callback‑данных и передаёт их в соответствующие функции.
 import type { Payload } from 'payload';
 import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
 import type { BotContext } from '@/plugins/TelegramAPI/utils/BotUtils/initializeBots';
-import { renderCategoryItems } from '@/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/renderCategoryItems';
+import { renderCategoryItems } from './renderCategoryItems';
+import { renderCategoryItemsLoadMore } from './renderCategoryItemsLoadMore';
 
-/**
- * Обработчик событий каталога.
- * @param {string} cbType - Тип callback-события.
- * @param {string} rawCategoryId - Идентификатор категории.
- * @param {string} rawItemsPerPage - Количество элементов на страницу.
- * @param {BotContext} ctx - Контекст Telegram бота.
- * @param {Payload} payload - Экземпляр Payload CMS.
- */
+interface RenderOptions {
+  page: number;
+  itemsPerPage: number;
+  displayMode: 'subcategories' | 'products' | 'all';
+}
+
 export async function handleCatalogEvent(
   cbType: string,
-  rawCategoryId: string,
-  rawItemsPerPage: string,
+  _unused: string, // больше не используется, параметры будут извлечены из callback данных
+  _unused2: string | undefined,
   ctx: BotContext,
   payload: Payload,
 ): Promise<void> {
@@ -30,26 +29,49 @@ export async function handleCatalogEvent(
     if (!ctx.callbackQuery || !ctx.callbackQuery.data) {
       throw new Error('Данные callback отсутствуют.');
     }
-
-    // Парсинг данных callback
-    const categoryId = parseInt(rawCategoryId, 10);
-    const itemsPerPage = parseInt(rawItemsPerPage, 10) || 3; // Устанавливаем значение по умолчанию
-    if (isNaN(categoryId)) {
-      log('error', `Некорректный идентификатор категории: "${rawCategoryId}".`, payload);
-      await ctx.reply('Ошибка: некорректный идентификатор категории.');
-      return;
-    }
-
-    switch (cbType) {
-      case 'catalogCategory': {
-        // Вызов функции отображения подкатегорий и товаров
-        await renderCategoryItems(ctx, categoryId.toString(), { page: 1, itemsPerPage }, payload);
-        break;
+    const parts = (ctx.callbackQuery.data as string).split('|');
+    const eventType = parts[0]?.trim() ?? '';
+    if (eventType === 'catalogCategory') {
+      // Для catalogCategory ожидаем формат: "catalogCategory|<categoryId>|<itemsPerPage>"
+      const rawCategoryId = parts[1]?.trim() ?? '';
+      const rawItemsPerPage = parts[2]?.trim() ?? "3";
+      const itemsPerPage = parseInt(rawItemsPerPage, 10) || 3;
+      const categoryId = parseInt(rawCategoryId, 10);
+      if (isNaN(categoryId)) {
+        log('error', `Некорректный идентификатор категории: "${rawCategoryId}".`, payload);
+        await ctx.reply('Ошибка: некорректный идентификатор категории.');
+        return;
       }
-
-      default:
-        await ctx.reply('Неизвестный тип события каталога.');
-        log('error', `Неизвестный тип события каталога: ${cbType}`, payload);
+      const options: RenderOptions = {
+        page: 1,
+        itemsPerPage,
+        displayMode: "all", // здесь можно настроить динамически, если потребуется
+      };
+      // При переходе в новую категорию очищаем предыдущие сообщения
+      await renderCategoryItems(ctx, categoryId.toString(), options, payload, true);
+    } else if (eventType === 'catalogLoadMore') {
+      // Для catalogLoadMore ожидаем формат: "catalogLoadMore|<categoryId>|<nextPage>|<itemsPerPage>"
+      const rawCategoryId = parts[1]?.trim() ?? '';
+      const rawPageValue = parts[2]?.trim() ?? "1";
+      const rawItemsPerPage = parts[3]?.trim() ?? "3";
+      const itemsPerPage = parseInt(rawItemsPerPage, 10) || 3;
+      const nextPage = parseInt(rawPageValue, 10);
+      const categoryId = parseInt(rawCategoryId, 10);
+      if (isNaN(categoryId)) {
+        log('error', `Некорректный идентификатор категории: "${rawCategoryId}".`, payload);
+        await ctx.reply('Ошибка: некорректный идентификатор категории.');
+        return;
+      }
+      const options: RenderOptions = {
+        page: nextPage,
+        itemsPerPage,
+        displayMode: "all",
+      };
+      // При постраничной загрузке не очищаем сообщения
+      await renderCategoryItemsLoadMore(ctx, categoryId.toString(), payload, nextPage, itemsPerPage);
+    } else {
+      await ctx.reply('Неизвестный тип события каталога.');
+      log('error', `Неизвестный тип события каталога: ${eventType}`, payload);
     }
   } catch (error: any) {
     log('error', `Ошибка обработки события каталога: ${error.message}`, payload);

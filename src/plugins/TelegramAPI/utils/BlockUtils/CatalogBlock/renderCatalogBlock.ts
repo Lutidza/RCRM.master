@@ -1,10 +1,8 @@
-// 📌 Путь: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/renderCatalogBlock.ts
-// 📌 Версия: 1.3.2
+// Path: src/blocks/TelegramAPI/CatalogBlock/renderCatalogBlock.ts
+// Version: 1.4.2
 //
 // [CHANGELOG]
-// - Добавлено логирование перед сохранением ID сообщения.
-// - Улучшена проверка наличия message_id.
-
+// - Изменён формат callback‑данных для кнопок категорий: теперь передаётся значение itemsPerPage из настроек блока.
 import type { Payload } from 'payload';
 import { InlineKeyboard } from 'grammy';
 import type { BotContext } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
@@ -18,55 +16,40 @@ export async function renderCatalogBlock(
 ): Promise<void> {
   try {
     if (!ctx.chat) {
-      log('error', 'Контекст чата отсутствует.', undefined);
+      log('error', 'Контекст чата отсутствует.', payload);
       return;
     }
 
-    const chatId = ctx.chat.id;
-    const inlineKeyboard = new InlineKeyboard();
-
+    // Запрашиваем все категории верхнего уровня
     const categoriesResult = await payload.find({
       collection: 'product-categories',
       where: { parent_id: { equals: null } },
       limit: 999,
     });
-
     const categories = categoriesResult.docs;
-
     if (categories.length === 0) {
       const emptyMsg = await ctx.reply('Категории отсутствуют.');
       storeMessageId(ctx, emptyMsg.message_id);
-      log('info', 'Категории отсутствуют.', payload);
+      log('info', 'Категории для отображения отсутствуют.', payload);
       return;
     }
-
+    const inlineKeyboard = new InlineKeyboard();
+    // Определяем значение itemsPerPage из настроек блока (если отсутствует – по умолчанию 3)
+    const itemsPerPage = block.itemsPerPage ?? 3;
+    // Формируем callback данные в формате: "catalogCategory|<categoryId>|<itemsPerPage>"
     categories.forEach((category: any, index: number) => {
-      inlineKeyboard.text(category.name, `catalogCategory|${category.id}`);
+      inlineKeyboard.text(category.name, `catalogCategory|${category.id}|${itemsPerPage}`);
       if ((index + 1) % 2 === 0) inlineKeyboard.row();
     });
-
     const bannerUrl = block.banner || 'https://kvartiry-tbilisi.ru/images/demo/catalog_banner-1.png';
     const description = block.description || 'Пожалуйста, выберите категорию:';
-
-    log('debug', `Отправка КаталогБлока. URL: ${bannerUrl}, Описание: ${description}`);
-
     const catalogMsg = await ctx.replyWithPhoto(bannerUrl, {
       caption: description,
       parse_mode: 'HTML',
       reply_markup: inlineKeyboard,
     });
-
-    if (catalogMsg?.message_id) {
-      storeMessageId(ctx, catalogMsg.message_id);
-      log(
-        'debug',
-        `Сообщение с описанием КаталогБлока добавлено в сессию. ID: ${catalogMsg.message_id}, Текущие сообщения: ${JSON.stringify(
-          ctx.session.previousMessages
-        )}`
-      );
-    } else {
-      log('error', 'Ошибка: message_id отсутствует в ответе Telegram API.');
-    }
+    storeMessageId(ctx, catalogMsg.message_id);
+    log('info', `Главная страница CatalogBlock успешно отображена для пользователя ${ctx.from?.id}`, payload);
   } catch (error: any) {
     log('error', `Ошибка отображения CatalogBlock: ${error.message}`, payload);
     const errorMsg = await ctx.reply('Произошла ошибка при загрузке каталога.');
