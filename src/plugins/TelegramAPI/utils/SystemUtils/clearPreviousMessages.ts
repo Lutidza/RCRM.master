@@ -1,15 +1,16 @@
 // Path: src/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages.ts
-// Version: 1.3.5
+// Version: 1.3.5-goBack_fix
 //
 // [CHANGELOG]
-// - Переименовано поле currentCategoryId в activeCategoryId для лучшей читаемости.
-// - Логика очистки сообщений остаётся прежней.
+// - Обновлён тип SessionData: добавлены stateStack, previousState и isBanned для поддержки go_back_state.
 import type { Context, SessionFlavor } from 'grammy';
 import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
 
-interface SessionData {
+export interface SessionData {
   previousMessages: number[];
-  activeCategoryId?: string;
+  stateStack: any[];
+  previousState?: any;
+  isBanned: boolean;
 }
 
 export type BotContext = Context & SessionFlavor<SessionData>;

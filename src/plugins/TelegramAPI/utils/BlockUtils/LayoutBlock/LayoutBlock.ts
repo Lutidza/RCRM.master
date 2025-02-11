@@ -1,13 +1,13 @@
 // Path: src/plugins/TelegramAPI/utils/BlockUtils/LayoutBlock/LayoutBlock.ts
-// Version: 1.3.5
+// Version: 1.3.6 (с исправлениями TS18048)
 // [CHANGELOG]
-// - Добавлена переменная layoutAlias до блока try для обеспечения её доступности в блоке catch.
-// - Добавлен параметр aliasOverride для использования alias из callback_data при необходимости.
-// - Дополнительное логирование для отладки.
+// - Если aliasOverride не задан, используется botConfig.interface.defaultStartLayout.
+// - Добавлена проверка наличия botConfig.interface и её поля blocks.
+// - После проверки используется оператор non‑null assertion для botConfig.interface.blocks.
+// - Функционал обработки блоков остаётся без изменений.
 
 import type { Payload } from 'payload';
 import type { BotContext } from '@/plugins/TelegramAPI/utils/BotUtils/initializeBots';
-import { BotConfig } from '@/plugins/TelegramAPI/utils/BotUtils/BotConfig'; // Импорт BotConfig
 import { processMessageBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/MessageBlock/index';
 import { handleButtonBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/ButtonBlock/ButtonBlock';
 import { renderCatalogBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/renderCatalogBlock';
@@ -39,28 +39,32 @@ const blockHandlers: Record<string, (ctx: BotContext, block: any, payload: Paylo
   'catalog-blocks': renderCatalogBlock,
 };
 
-/**
- * Функция sendLayoutBlock отправляет лейаут, полученный из объекта BotConfig.
- * @param ctx - Контекст бота (BotContext)
- * @param botConfig - Объект BotConfig, объединяющий данные из базы и виртуальные поля для Telegram API
- * @param payload - Объект Payload для работы с базой и логирования
- * @param aliasOverride - (необязательный) Если передан, используется вместо botConfig.currentLayoutAlias для поиска лейаута
- */
 export async function sendLayoutBlock(
   ctx: BotContext,
-  botConfig: BotConfig,
+  botConfig: any, // Ожидается объект типа BotConfig
   payload: Payload,
   aliasOverride?: string
 ): Promise<void> {
-  // Объявляем layoutAlias до try-блока, чтобы он был доступен и в catch
-  const layoutAlias = aliasOverride || botConfig.currentLayoutAlias;
+  // Если aliasOverride не задан, используем значение из botConfig.interface.defaultStartLayout
+  const layoutAlias = aliasOverride ?? botConfig.interface?.defaultStartLayout;
+
+  if (!layoutAlias) {
+    await ctx.reply('Ошибка: Не удалось определить layout alias.');
+    return;
+  }
 
   try {
     log('debug', `Используемый layoutAlias: ${layoutAlias}`);
     log('debug', `BotConfig.interface: ${JSON.stringify(botConfig.interface)}`);
 
-    // Ищем layout-блок с нужным alias
-    const layoutBlock: LayoutBlock | undefined = botConfig.interface?.blocks?.find(
+    // Если интерфейс отсутствует или блоков нет – выводим сообщение и завершаем
+    if (!botConfig.interface || !botConfig.interface.blocks || botConfig.interface.blocks.length === 0) {
+      await ctx.reply(`Layout "${layoutAlias}" не содержит блоков. Добавьте блоки.`);
+      return;
+    }
+
+    // Используем non‑null assertion, так как выше проверено, что blocks определён и непустой
+    const layoutBlock: LayoutBlock | undefined = botConfig.interface!.blocks.find(
       (block: any) => block.alias === layoutAlias
     );
 

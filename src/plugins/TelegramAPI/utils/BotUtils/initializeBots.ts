@@ -1,37 +1,38 @@
 // Path: src/plugins/TelegramAPI/utils/BotUtils/initializeBots.ts
-// Version: 1.4.2
+// Version: 1.4.2-stable+goBack_final_fix
 //
 // [CHANGELOG]
 // - Использование BotConfig для настройки ботов.
-// - Обработка команды /start: вызывается processClient, флаг isBanned сохраняется в сессию.
-// - Выбор layout-а теперь производится на стороне клиента, основываясь на поле total_visit документа клиента:
-//   если total_visit === 1, используется defaultFirstVisitLayout, иначе – defaultStartLayout.
+// - Функция createUnifiedBotConfig возвращает rawBotData.interface объединённое с дефолтными значениями.
+// - Обработка команды /start: после processClient выбирается layout alias на основе total_visit клиента (если total_visit === 1 – используется defaultFirstVisitLayout, иначе defaultStartLayout).
 // - Middleware bannedClientHook подключён для проверки статуса клиента.
-
+// - В callback‑обработчике добавлены ветки для типов "catalogCategory" и "catalogLoadMore" для корректного открытия категорий,
+//   а также – если callback с типом "layout" имеет alias "go_back_state", он перенаправляется в goBackState.
+// - Механизм go_back_state реализован через вызов функции goBackState.
+// - Тип BotContext экспортируется из модуля clearPreviousMessages.
 import type { Payload } from 'payload';
-import { Bot as TelegramBot } from 'grammy';
-import { session, Context, SessionFlavor } from 'grammy';
-import { handleCatalogEvent } from '@/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/CatalogEventHandlers';
-import { sendLayoutBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/LayoutBlock/LayoutBlock';
+import type { Config, Plugin } from 'payload';
+import { Bot as TelegramBot, session } from 'grammy';
+
 import { bannedClientHook } from '@/plugins/TelegramAPI/utils/ClientUtils/bannedClient';
-import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+import { processClient } from '@/plugins/TelegramAPI/utils/ClientUtils/processClient';
+import { sendLayoutBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/LayoutBlock/LayoutBlock';
 import { processMessageBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/MessageBlock/index';
 import { renderCatalogBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/renderCatalogBlock';
+import { handleCatalogEvent } from '@/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/CatalogEventHandlers';
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
 import { BotConfig } from '@/plugins/TelegramAPI/utils/BotUtils/BotConfig';
-import { processClient } from '@/plugins/TelegramAPI/utils/ClientUtils/processClient';
+import { goBackState } from '@/plugins/TelegramAPI/utils/SystemUtils/goBackState';
+// Импорт типов сессии и контекста для унификации
+import type { BotContext, SessionData } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
 
-export interface SessionData {
-  previousMessages: number[];
-  isBanned?: boolean;
-}
-
-export type BotContext = Context & SessionFlavor<SessionData>;
+export type { BotContext };
 
 export interface UnifiedBotInterface {
-  blocks?: any[];
+  blocks: any[];
   defaultStartLayout: string;
   defaultFirstVisitLayout: string;
-  total_visit?: number;
+  total_visit: number;
 }
 
 export interface UnifiedBotConfig {
@@ -42,10 +43,21 @@ export interface UnifiedBotConfig {
   enabled: string;
   initialization_status: string;
   last_initialized?: string;
-  interface?: UnifiedBotInterface;
+  interface?: Partial<UnifiedBotInterface>;
 }
 
+/**
+ * Объединяет данные из объекта бота (из коллекции Bots)
+ * в единый объект настроек (UnifiedBotConfig). Если rawBotData.interface присутствует,
+ * его поля объединяются с набором дефолтных значений; если отсутствует – подставляются дефолтные значения.
+ */
 export function createUnifiedBotConfig(rawBotData: any): UnifiedBotConfig {
+  const defaultInterface: UnifiedBotInterface = {
+    blocks: [],
+    defaultStartLayout: 'start',
+    defaultFirstVisitLayout: 'start_first_visit',
+    total_visit: 0,
+  };
   return {
     id: rawBotData.id,
     name: rawBotData.name,
@@ -54,14 +66,14 @@ export function createUnifiedBotConfig(rawBotData: any): UnifiedBotConfig {
     enabled: rawBotData.enabled,
     initialization_status: rawBotData.initialization_status,
     last_initialized: rawBotData.last_initialized,
-    interface: rawBotData.interface
-      ? {
-        blocks: Array.isArray(rawBotData.interface.blocks) ? rawBotData.interface.blocks : [],
-        defaultStartLayout: rawBotData.interface.defaultStartLayout,
-        defaultFirstVisitLayout: rawBotData.interface.defaultFirstVisitLayout,
-        total_visit: typeof rawBotData.interface.total_visit === 'number' ? rawBotData.interface.total_visit : 0,
-      }
-      : undefined,
+    interface: {
+      blocks: Array.isArray(rawBotData.interface?.blocks) ? rawBotData.interface.blocks : defaultInterface.blocks,
+      defaultStartLayout: rawBotData.interface?.defaultStartLayout ?? defaultInterface.defaultStartLayout,
+      defaultFirstVisitLayout: rawBotData.interface?.defaultFirstVisitLayout ?? defaultInterface.defaultFirstVisitLayout,
+      total_visit: typeof rawBotData.interface?.total_visit === 'number'
+        ? rawBotData.interface.total_visit
+        : defaultInterface.total_visit,
+    },
   };
 }
 
@@ -97,11 +109,10 @@ async function initBot(payload: Payload, botConfig: BotConfig): Promise<void> {
 
     bot.use(
       session<SessionData, BotContext>({
-        initial: () => ({ previousMessages: [] }),
+        initial: () => ({ previousMessages: [], stateStack: [], previousState: undefined, isBanned: false }),
       })
     );
 
-    // Подключаем middleware для проверки забаненности клиента (из bannedClient.ts)
     bot.use(bannedClientHook(payload));
 
     // Обработка команды /start
@@ -113,24 +124,32 @@ async function initBot(payload: Payload, botConfig: BotConfig): Promise<void> {
           await ctx.reply('Ошибка: Telegram ID не найден.');
           return;
         }
-        // Восстанавливаем экземпляр BotConfig, если требуется
-        const configInstance = botConfig instanceof BotConfig ? botConfig : new BotConfig(botConfig);
-        const YOUR_BOT_ID = botConfig.id;
-        // Создаем или обновляем клиента и получаем документ клиента
-        const client = await processClient(payload, telegramId, YOUR_BOT_ID, {
+        const client = await processClient(payload, telegramId, botConfig.id, {
           first_name: ctx.from?.first_name,
           last_name: ctx.from?.last_name,
           username: ctx.from?.username,
         });
-        // Сохраняем флаг isBanned в сессию
         ctx.session.isBanned = client.isBanned;
-        // Определяем layout alias на основе данных клиента: если total_visit === 1, используем defaultFirstVisitLayout, иначе defaultStartLayout
-        const layoutAlias = client.total_visit === 1
-          ? configInstance.interface.defaultFirstVisitLayout
-          : configInstance.interface.defaultStartLayout;
-        log('info', `Выбран layoutAlias: ${layoutAlias} (client.total_visit=${client.total_visit})`, payload);
-        // Передаем aliasOverride в sendLayoutBlock, чтобы выбрать нужный layout
-        await sendLayoutBlock(ctx, configInstance, payload, layoutAlias);
+        if (!client.isBanned) {
+          const layoutAlias = client.total_visit === 1
+            ? botConfig.interface.defaultFirstVisitLayout
+            : botConfig.interface.defaultStartLayout;
+          log('info', `Выбран layoutAlias: ${layoutAlias} (client.total_visit=${client.total_visit})`, payload);
+          if (layoutAlias) {
+            const layoutBlock = botConfig.interface.blocks.find((block: any) => block.alias === layoutAlias);
+            if (layoutBlock) {
+              // Сохраняем текущее состояние для возможности возврата
+              ctx.session.previousState = layoutBlock;
+              await sendLayoutBlock(ctx, botConfig, payload, layoutAlias);
+            } else {
+              await ctx.reply(`Ошибка: Лейаут с alias "${layoutAlias}" не найден.`);
+            }
+          } else {
+            await ctx.reply('Ошибка: Не удалось определить layout alias.');
+          }
+        } else {
+          await ctx.reply('Ваш аккаунт заблокирован.');
+        }
       } catch (error: any) {
         log('error', `Ошибка обработки команды /start: ${error.message}`, payload);
       }
@@ -138,36 +157,50 @@ async function initBot(payload: Payload, botConfig: BotConfig): Promise<void> {
 
     // Обработка callback‑запросов
     bot.on('callback_query:data', async (ctx) => {
+      if (!ctx.callbackQuery || !ctx.callbackQuery.data) return;
       try {
-        const data = ctx.callbackQuery?.data;
-        if (!data) {
-          await ctx.reply('Ошибка: данные callback отсутствуют.');
-          return;
+        const data = ctx.callbackQuery.data;
+        const parts = data.split('|');
+        const cbType = parts[0]?.trim() ?? '';
+        const callbackAlias = parts[1]?.trim() ?? '';
+
+        // Если callback типа "layout" и alias равен "go_back_state", перенаправляем в goBackState
+        if (cbType === 'layout' && callbackAlias === 'go_back_state') {
+          await goBackState(ctx, payload, botConfig);
         }
-        const [cbType, callbackAlias] = data.split('|');
-        if (!cbType || !callbackAlias) {
-          await ctx.reply('Некорректный формат callback.');
-          return;
+        // Обработка типов, связанных с каталогом
+        else if (cbType === 'catalogCategory' || cbType === 'catalogLoadMore') {
+          await handleCatalogEvent(cbType, callbackAlias, '', ctx, payload);
+          log('info', `Callback "${cbType}|${callbackAlias}" обработан через handleCatalogEvent.`, payload);
         }
-        switch (cbType) {
-          case 'layout': {
-            await sendLayoutBlock(ctx, botConfig, payload, callbackAlias);
-            log('info', `Layout "${callbackAlias}" успешно обработан.`, payload);
-            break;
-          }
-          case 'message': {
-            await processMessageBlock(ctx, { message: callbackAlias });
-            log('info', `MessageBlock "${callbackAlias}" успешно обработан.`, payload);
-            break;
-          }
-          case 'catalog': {
-            await renderCatalogBlock(ctx, { alias: callbackAlias }, payload);
-            log('info', `CatalogBlock "${callbackAlias}" успешно обработан.`, payload);
-            break;
-          }
-          default: {
-            await handleCatalogEvent(cbType, callbackAlias, '', ctx, payload);
-            log('info', `Callback "${cbType}|${callbackAlias}" обработан через handleCatalogEvent.`, payload);
+        else {
+          switch (cbType) {
+            case 'layout': {
+              const layoutBlock = botConfig.interface.blocks.find((block: any) => block.alias === callbackAlias);
+              if (layoutBlock) {
+                ctx.session.previousState = layoutBlock;
+                await sendLayoutBlock(ctx, botConfig, payload, callbackAlias);
+              } else {
+                await ctx.reply(`Ошибка: Лейаут с alias "${callbackAlias}" не найден.`);
+              }
+              break;
+            }
+            case 'message': {
+              await processMessageBlock(ctx, { message: callbackAlias });
+              log('info', `MessageBlock "${callbackAlias}" успешно обработан.`, payload);
+              break;
+            }
+            case 'command': {
+              if (callbackAlias === 'go_back_state') {
+                await goBackState(ctx, payload, botConfig);
+              } else {
+                await ctx.reply(`Неизвестная команда: ${callbackAlias}`);
+              }
+              break;
+            }
+            default: {
+              await ctx.reply(`Неизвестный тип callback: ${cbType}`);
+            }
           }
         }
         await ctx.answerCallbackQuery();
@@ -178,6 +211,7 @@ async function initBot(payload: Payload, botConfig: BotConfig): Promise<void> {
 
     bot.start();
     log('info', `🤖 Бот "${botConfig.name}" успешно запущен.`, payload);
+
     await payload.update({
       collection: 'bots',
       id: botConfig.id,

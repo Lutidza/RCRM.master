@@ -1,11 +1,10 @@
 // Path: src/plugins/TelegramAPI/utils/ClientUtils/processClient.ts
-// Version: 1.3.8
+// Version: 1.3.8-stable
 //
 // [CHANGELOG]
-// - При создании нового клиента поле status не передаётся вовсе, позволяя установить значение по умолчанию
-//   на стороне коллекции (через defaultValue или beforeChange-хук).
+// - При создании нового клиента поле status не передаётся, чтобы установить значение по умолчанию через вебхук/коллекцию.
 // - Добавлено логирование значения client.status после создания/обновления клиента.
-// - Нормализовано поле bots с дополнительными проверками для устранения ошибки TS2532.
+// - Нормализовано поле bots для устранения ошибок типов.
 // - Поле status не изменяется ботом – изменение статуса происходит только через админ-панель.
 import type { Payload } from 'payload';
 import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
@@ -17,17 +16,6 @@ interface FromData {
   username?: string;
 }
 
-/**
- * Обрабатывает клиента в коллекции "clients".
- * Если клиент не найден, создаётся новый, при этом поле status не передаётся,
- * чтобы на стороне коллекции (через defaultValue или beforeChange-хук) было установлено значение по умолчанию.
- * Если клиент найден, обновляются его данные.
- * @param payload - Экземпляр Payload CMS.
- * @param telegramId - Telegram ID пользователя.
- * @param botId - Идентификатор бота.
- * @param fromData - Данные пользователя из Telegram (first_name, last_name, username).
- * @returns Обновлённые или созданные данные клиента.
- */
 export async function processClient(
   payload: Payload,
   telegramId: number,
@@ -58,7 +46,7 @@ export async function processClient(
           total_visit: 1,
           last_visit: new Date().toISOString(),
           enabled: "enabled"
-          // Поле status не передаётся, чтобы вебхук или defaultValue в коллекции установил его автоматически.
+          // Поле status не передаётся, чтобы значение установилось через defaultValue или beforeChange-хук в коллекции.
         },
       });
     } else {

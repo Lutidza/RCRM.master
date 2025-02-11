@@ -1,12 +1,11 @@
 // Path: src/plugins/TelegramAPI/utils/ClientUtils/checkClientStatus.ts
-// Version: 1.1.5
+// Version: 1.1.5-stable
 //
 // [CHANGELOG]
 // - Добавлена поддержка числовых значений в поле status.
 // - Если status равен undefined или null, возвращается "new" как значение по умолчанию.
 // - Если status – объект с полем alias, возвращается alias; если статус – число или строка, выполняется запрос к коллекции "statuses".
 // - Используется единый логгер log для отладки.
-
 import type { Payload } from 'payload';
 import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
 
@@ -19,7 +18,6 @@ export async function checkClientStatus(
       log('debug', 'checkClientStatus: status is undefined or null, defaulting to "new"');
       return "new";
     }
-    // Если статус является объектом
     if (typeof status === 'object') {
       if ('alias' in status && typeof status.alias === 'string') {
         return status.alias;
@@ -34,7 +32,6 @@ export async function checkClientStatus(
         return statusDoc?.alias || "new";
       }
     }
-    // Если статус хранится как число или строка (ID)
     if (typeof status === 'number' || typeof status === 'string') {
       const statusResult = await payload.find({
         collection: 'statuses',

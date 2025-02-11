@@ -1,41 +1,25 @@
 // Path: src/plugins/TelegramAPI/utils/ClientUtils/bannedClient.ts
-// Version: 1.2.3
+// Version: 1.2.3-stable
 //
 // [CHANGELOG]
 // - Объединена логика проверки бана в один middleware.
 // - Сначала проверяется сессионный флаг isBanned; если он установлен, дальнейшая обработка прекращается.
 // - Если флаг не установлен, выполняется проверка статуса клиента через checkClientStatus.
-// - Если alias равен "banned", отправляется сообщение о бане, флаг isBanned сохраняется в сессии, и обработка прерывается.
+// - Если alias равен "banned", отправляется сообщение и флаг isBanned сохраняется в сессии.
 // - Используется единый логгер log для отладки.
-
 import type { Context } from 'grammy';
 import type { Payload } from 'payload';
 import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
 import { checkClientStatus } from './checkClientStatus';
 
-interface SessionData {
-  previousMessages: number[];
-  isBanned?: boolean;
-}
-
-type BotContext = Context & { session: SessionData };
-
-/**
- * Middleware для проверки забаненного клиента.
- * Ищет клиента по Telegram ID, проверяет его статус через checkClientStatus,
- * и если alias равен "banned", отправляет сообщение и прекращает дальнейшую обработку.
- * @param payload - Экземпляр Payload CMS.
- */
 export function bannedClientHook(payload: Payload) {
-  return async (ctx: BotContext, next: () => Promise<void>): Promise<void> => {
+  return async (ctx: Context & { session: any }, next: () => Promise<void>): Promise<void> => {
     try {
-      // Сначала проверяем сессионный флаг
       if (ctx.session.isBanned) {
         await ctx.reply("💀 Your account is locked! 💀 \n\n🚷 You've been banned.");
         log('info', 'bannedClientHook: Session indicates client is banned, skipping processing.', payload);
         return;
       }
-      // Если флаг не установлен, ищем клиента в базе
       if (ctx.from) {
         const telegramId = ctx.from.id;
         const { docs } = await payload.find({
@@ -49,7 +33,6 @@ export function bannedClientHook(payload: Payload) {
           if (statusAlias === 'banned') {
             await ctx.reply("💀 Your account is locked! 💀 \n\n🚷 You've been banned.");
             log('info', `bannedClientHook: Client ID=${client.id} is banned according to DB check.`, payload);
-            // Сохраняем флаг isBanned в сессии для последующих запросов
             ctx.session.isBanned = true;
             return;
           }
