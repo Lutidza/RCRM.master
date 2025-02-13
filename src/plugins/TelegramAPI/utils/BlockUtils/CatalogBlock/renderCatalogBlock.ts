@@ -1,11 +1,13 @@
 // Path: src/blocks/TelegramAPI/CatalogBlock/renderCatalogBlock.ts
-// Version: 1.4.2
+// Version: 1.4.3-refactored
 //
 // [CHANGELOG]
 // - Изменён формат callback‑данных для кнопок категорий: теперь передаётся значение itemsPerPage из настроек блока.
+// - Обновлены импорты типов для использования единого файла типизации (TelegramBlocksTypes.ts).
+
 import type { Payload } from 'payload';
 import { InlineKeyboard } from 'grammy';
-import type { BotContext } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
+import type { BotContext } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
 import { storeMessageId } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
 import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
 
@@ -33,16 +35,25 @@ export async function renderCatalogBlock(
       log('info', 'Категории для отображения отсутствуют.', payload);
       return;
     }
+
+    // Создаём inline-клавиатуру для категорий
     const inlineKeyboard = new InlineKeyboard();
     // Определяем значение itemsPerPage из настроек блока (если отсутствует – по умолчанию 3)
     const itemsPerPage = block.itemsPerPage ?? 3;
-    // Формируем callback данные в формате: "catalogCategory|<categoryId>|<itemsPerPage>"
+    // Формируем callback‑данные в формате: "catalogCategory|<categoryId>|<itemsPerPage>"
     categories.forEach((category: any, index: number) => {
       inlineKeyboard.text(category.name, `catalogCategory|${category.id}|${itemsPerPage}`);
-      if ((index + 1) % 2 === 0) inlineKeyboard.row();
+      if ((index + 1) % 2 === 0) {
+        inlineKeyboard.row();
+      }
     });
+
+    // Получаем URL баннера из настроек или используем стандартный
     const bannerUrl = block.banner || 'https://kvartiry-tbilisi.ru/images/demo/catalog_banner-1.png';
+    // Получаем описание, если оно задано, или используем стандартный текст
     const description = block.description || 'Пожалуйста, выберите категорию:';
+
+    // Отправляем сообщение с фото (баннером) и прикреплённой клавиатурой
     const catalogMsg = await ctx.replyWithPhoto(bannerUrl, {
       caption: description,
       parse_mode: 'HTML',

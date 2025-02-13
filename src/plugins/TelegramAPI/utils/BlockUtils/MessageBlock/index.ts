@@ -1,11 +1,12 @@
-// Path: src/plugins/TelegramAPI/utils/BlockUtils/MessageBlock/index.ts
-// Version: 1.0.10
+// Path: src/plugins/TelegramAPI/utils/BlockUtils/MessageBlock/index.TelegramAPI.ts
+// Version: 1.0.11
 //
 // This utility processes a MessageBlock by sending its content using HTML formatting via grammY.
 // For testing purposes, if a media file is attached, a fixed URL is used.
 // Now, if a MessageBlock contains a "buttons" field (provided via ButtonBlock),
 // the buttons are attached to the same message via an inline keyboard.
-// In this case, any description from ButtonBlock is ignored – only the array of buttons is used.
+// In this case, if the nested ButtonBlock does not supply a callbackType,
+// a default value ("layout") is used so that the resulting callback_data has the form "<type>|<alias>".
 
 import type { Context, SessionFlavor } from 'grammy';
 import { InlineKeyboard } from 'grammy';
@@ -37,13 +38,14 @@ function getTestMediaUrl(url: string): string {
 function buildInlineKeyboard(buttons: any[]): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   buttons.forEach((btn: any) => {
-    // Поскольку поле text обязательно, используем его напрямую.
-    if (btn.callbackType === 'link' && btn.url) {
+    // Если callbackType отсутствует или пуст, используем значение по умолчанию "layout"
+    const callbackType = btn.callbackType && btn.callbackType.trim() !== '' ? btn.callbackType : 'layout';
+    const callbackData = btn.callback_data || '';
+    const data = `${callbackType}|${callbackData}`;
+
+    if (callbackType === 'link' && btn.url) {
       keyboard.url(btn.text, btn.url);
     } else {
-      // Формируем callback_data с префиксом типа (например, "layout|store_home_page")
-      const callbackData = btn.callback_data || '';
-      const data = `${btn.callbackType}|${callbackData}`;
       keyboard.text(btn.text, data);
     }
     if (btn.newRow) {
@@ -68,8 +70,8 @@ export async function processMessageBlock(ctx: BotContext, blockData: any): Prom
     // Обработка кнопок: если поле buttons присутствует, пытаемся извлечь кнопки.
     let buttonsArray: any[] = [];
     if (Array.isArray(blockData.buttons) && blockData.buttons.length > 0) {
-      // Если используется обёртка ButtonBlock, где помимо массива кнопок присутствует также поле description,
-      // то извлекаем только сами кнопки.
+      // Если используется обёртка ButtonBlock (то есть, первый элемент имеет вложенное поле "buttons"),
+      // объединяем все внутренние массивы в один.
       if (blockData.buttons[0]?.buttons) {
         blockData.buttons.forEach((btnBlock: any) => {
           if (Array.isArray(btnBlock.buttons)) {

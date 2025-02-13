@@ -1,15 +1,16 @@
 // Path: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/renderProductCard.ts
-// Version: 1.0.12
+// Version: 1.0.13-refactored
 //
 // [CHANGELOG]
 // - Удалён вызов clearPreviousMessages(ctx), чтобы не удалять уже выведенные карточки товара при постраничной подгрузке.
+// - Обновлены импорты типов: BotContext теперь импортируется из единого файла типизации TelegramBlocksTypes.ts.
 // - Остальная логика обработки продукта сохранена.
+
 import type { Payload } from 'payload';
 import { InlineKeyboard } from 'grammy';
-import {
-  storeMessageId,
-  BotContext,
-} from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
+// Импортируем BotContext из единого файла типизации
+import type { BotContext } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
+import { storeMessageId } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
 import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
 
 const DEMO_IMAGE_URL = "https://kvartiry-tbilisi.ru/images/demo/product_banner.png";
@@ -51,9 +52,6 @@ export async function renderProductCard(
     log('info', `Карточка продукта с ID ${productId} успешно отправлена.`, payload);
   } catch (error: any) {
     log('error', `Ошибка при отображении карточки продукта: ${error.message}`, payload);
-    await ctx.reply(
-      "Произошла ошибка при загрузке информации о продукте.",
-      { parse_mode: 'HTML' }
-    );
+    await ctx.reply("Произошла ошибка при загрузке информации о продукте.", { parse_mode: 'HTML' });
   }
 }

@@ -1,23 +1,18 @@
 // Path: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/renderCategoryItems.ts
-// Version: 1.4.10.1
+// Version: 1.4.11-refactored
 //
 // [CHANGELOG]
 // - Функция теперь принимает внешний параметр clearMessages, который полностью определяет, нужно ли очищать предыдущие сообщения.
-// - Очистка сообщений больше не основана на проверке номера страницы или активной категории внутри функции.
-// - Логика вывода информации о категории, подкатегорий и товаров с пагинацией остаётся прежней.
+// - Логика вывода информации о категории, подкатегориях и товарах с пагинацией остаётся прежней.
+// - Обновлены импорты типов для использования единого файла типизации (TelegramBlocksTypes.ts).
+
 import type { Payload } from 'payload';
-import type { BotContext } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
+import type { BotContext, RenderOptions } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
 import { clearPreviousMessages, storeMessageId } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
 import { InlineKeyboard } from 'grammy';
 import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
 import { paginateCategoryItems } from './paginateCategoryItems';
 import { renderProductCard } from './renderProductCard';
-
-interface RenderOptions {
-  page: number;
-  itemsPerPage: number;
-  displayMode: 'subcategories' | 'products' | 'all';
-}
 
 export async function renderCategoryItems(
   ctx: BotContext,
@@ -90,7 +85,9 @@ export async function renderCategoryItems(
       const subKeyboard = new InlineKeyboard();
       subcategories.forEach((subcat: any, index: number) => {
         subKeyboard.text(subcat.name, `catalogCategory|${subcat.id}`);
-        if ((index + 1) % 2 === 0) subKeyboard.row();
+        if ((index + 1) % 2 === 0) {
+          subKeyboard.row();
+        }
       });
       const subMsg = await ctx.reply('Подкатегории:', { reply_markup: subKeyboard });
       storeMessageId(ctx, subMsg.message_id);
