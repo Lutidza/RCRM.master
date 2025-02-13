@@ -1,17 +1,10 @@
 // Path: src/plugins/TelegramAPI/utils/BotUtils/initializeBots.ts
-// Version: 1.4.2-stable+goBack_final_fix
-//
-// [CHANGELOG]
-// - Использование BotConfig для настройки ботов.
-// - Функция createUnifiedBotConfig возвращает rawBotData.interface объединённое с дефолтными значениями.
-// - Обработка команды /start: после processClient выбирается layout alias на основе total_visit клиента (если total_visit === 1 – используется defaultFirstVisitLayout, иначе defaultStartLayout).
-// - Middleware bannedClientHook подключён для проверки статуса клиента.
-// - В callback‑обработчике добавлены ветки для типов "catalogCategory" и "catalogLoadMore" для корректного открытия категорий,
-//   а также – если callback с типом "layout" имеет alias "go_back_state", он перенаправляется в goBackState.
-// - Механизм go_back_state реализован через вызов функции goBackState.
-// - Тип BotContext экспортируется из модуля clearPreviousMessages.
+// Version: 1.4.4-refactored
+// Рефакторинг: Обновлены импорты типов (BotContext, SessionData) из общего файла TelegramBlocksTypes.ts,
+// добавлено явное указание типа для начального состояния сессии с двумя типовыми аргументами,
+// а также оставлены отдельные вызовы bot.use для регистрации различных middleware.
+
 import type { Payload } from 'payload';
-import type { Config, Plugin } from 'payload';
 import { Bot as TelegramBot, session } from 'grammy';
 
 import { bannedClientHook } from '@/plugins/TelegramAPI/utils/ClientUtils/bannedClient';
@@ -23,8 +16,8 @@ import { handleCatalogEvent } from '@/plugins/TelegramAPI/utils/BlockUtils/Catal
 import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
 import { BotConfig } from '@/plugins/TelegramAPI/utils/BotUtils/BotConfig';
 import { goBackState } from '@/plugins/TelegramAPI/utils/SystemUtils/goBackState';
-// Импорт типов сессии и контекста для унификации
-import type { BotContext, SessionData } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
+// Импорт типов из общего файла
+import type { BotContext, SessionData } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
 
 export type { BotContext };
 
@@ -107,12 +100,19 @@ async function initBot(payload: Payload, botConfig: BotConfig): Promise<void> {
     }
     const bot = new TelegramBot<BotContext>(botConfig.token);
 
+    // Регистрация middleware сессии с явным указанием типа начального состояния и двух типовых аргументов.
     bot.use(
       session<SessionData, BotContext>({
-        initial: () => ({ previousMessages: [], stateStack: [], previousState: undefined, isBanned: false }),
+        initial: (): SessionData => ({
+          previousMessages: [] as number[],
+          stateStack: [] as any[],
+          previousState: undefined,
+          isBanned: false,
+        }),
       })
     );
 
+    // Регистрация middleware для проверки статуса клиента (бан).
     bot.use(bannedClientHook(payload));
 
     // Обработка команды /start

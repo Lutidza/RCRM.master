@@ -1,20 +1,13 @@
 // Path: src/plugins/TelegramAPI/utils/ClientUtils/processClient.ts
-// Version: 1.3.8-stable
-//
-// [CHANGELOG]
-// - При создании нового клиента поле status не передаётся, чтобы установить значение по умолчанию через вебхук/коллекцию.
-// - Добавлено логирование значения client.status после создания/обновления клиента.
-// - Нормализовано поле bots для устранения ошибок типов.
-// - Поле status не изменяется ботом – изменение статуса происходит только через админ-панель.
+// Version: 1.3.9-refactored
+// Рефакторинг: Удалено локальное объявление типа FromData, импортирован из общего файла TelegramBlocksTypes.ts.
+// Поля telegramId и botId передаются отдельно, так как они не являются частью данных профиля Telegram.
+
 import type { Payload } from 'payload';
 import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
 import { checkClientStatus } from './checkClientStatus';
-
-interface FromData {
-  first_name?: string;
-  last_name?: string;
-  username?: string;
-}
+// Импорт типа FromData из общего файла с типами
+import type { FromData } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
 
 export async function processClient(
   payload: Payload,
@@ -38,15 +31,15 @@ export async function processClient(
       client = await payload.create({
         collection: 'clients',
         data: {
-          telegram_id: telegramId,
-          bots: [botId],
+          telegram_id: telegramId,                   // Уникальный идентификатор пользователя Telegram
+          bots: [botId],                             // Идентификатор бота
           first_name: fromData.first_name ?? "",
           last_name: fromData.last_name ?? "",
           user_name: fromData.username || 'anonymous_user',
-          total_visit: 1,
-          last_visit: new Date().toISOString(),
+          total_visit: 1,                            // Первое посещение
+          last_visit: new Date().toISOString(),      // Текущая дата как дата последнего визита
           enabled: "enabled"
-          // Поле status не передаётся, чтобы значение установилось через defaultValue или beforeChange-хук в коллекции.
+          // Поле status не передаётся, чтобы его значение установилось через defaultValue или beforeChange-хук в коллекции.
         },
       });
     } else {

@@ -1,22 +1,14 @@
 // Path: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/CatalogEventHandlers.ts
-// Version: 1.2.6
-//
-// [CHANGELOG]
-// - Изменена логика разбора callback‑данных.
-// - Для события "catalogCategory" callback‑данные теперь должны быть в формате: "catalogCategory|<categoryId>|<itemsPerPage>".
-// - Для события "catalogLoadMore" callback‑данные должны быть: "catalogLoadMore|<categoryId>|<nextPage>|<itemsPerPage>".
-// - Обработчик извлекает параметры из callback‑данных и передаёт их в соответствующие функции.
+// Version: 1.2.7-refactored
+// Рефакторинг: Обновлены импорты типов из общего файла TelegramBlocksTypes.ts.
+// Локальное объявление типа RenderOptions удалено.
+
 import type { Payload } from 'payload';
 import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
-import type { BotContext } from '@/plugins/TelegramAPI/utils/BotUtils/initializeBots';
+// Импорт типов из общего файла
+import type { BotContext, RenderOptions } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
 import { renderCategoryItems } from './renderCategoryItems';
 import { renderCategoryItemsLoadMore } from './renderCategoryItemsLoadMore';
-
-interface RenderOptions {
-  page: number;
-  itemsPerPage: number;
-  displayMode: 'subcategories' | 'products' | 'all';
-}
 
 export async function handleCatalogEvent(
   cbType: string,

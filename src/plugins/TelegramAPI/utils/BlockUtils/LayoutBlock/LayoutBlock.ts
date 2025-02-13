@@ -1,28 +1,17 @@
 // Path: src/plugins/TelegramAPI/utils/BlockUtils/LayoutBlock/LayoutBlock.ts
-// Version: 1.3.6 (с исправлениями TS18048)
-// [CHANGELOG]
-// - Если aliasOverride не задан, используется botConfig.interface.defaultStartLayout.
-// - Добавлена проверка наличия botConfig.interface и её поля blocks.
-// - После проверки используется оператор non‑null assertion для botConfig.interface.blocks.
-// - Функционал обработки блоков остаётся без изменений.
+// Version: 1.3.8-refactored
+// Рефакторинг: Использование общего типа TelegramLayoutBlock и BotContext из файла TelegramBlocksTypes.ts.
+// Локальное объявление типа LayoutBlock удалено. Функционал обработки блоков остаётся без изменений.
+// Добавлена логика сохранения текущего состояния в стек (stateStack) перед переключением на новый layout.
 
 import type { Payload } from 'payload';
-import type { BotContext } from '@/plugins/TelegramAPI/utils/BotUtils/initializeBots';
+// Импорт типов из общего файла с типами
+import type { BotContext, TelegramLayoutBlock } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
 import { processMessageBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/MessageBlock/index';
 import { handleButtonBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/ButtonBlock/ButtonBlock';
 import { renderCatalogBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/renderCatalogBlock';
 import { clearPreviousMessages, storeMessageId } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
 import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
-
-interface LayoutBlock {
-  clearPreviousMessages: boolean;
-  name: string;
-  blocks: Array<{
-    blockType: string;
-    description?: string;
-    [key: string]: any;
-  }>;
-}
 
 const blockHandlers: Record<string, (ctx: BotContext, block: any, payload: Payload) => Promise<void>> = {
   messageblock: processMessageBlock,
@@ -57,14 +46,19 @@ export async function sendLayoutBlock(
     log('debug', `Используемый layoutAlias: ${layoutAlias}`);
     log('debug', `BotConfig.interface: ${JSON.stringify(botConfig.interface)}`);
 
+    // Если уже установлено текущее состояние и его alias отличается от нового, сохраняем его в стек
+    if (ctx.session.currentState && ctx.session.currentState.alias !== layoutAlias) {
+      ctx.session.stateStack.push(ctx.session.currentState);
+    }
+
     // Если интерфейс отсутствует или блоков нет – выводим сообщение и завершаем
     if (!botConfig.interface || !botConfig.interface.blocks || botConfig.interface.blocks.length === 0) {
       await ctx.reply(`Layout "${layoutAlias}" не содержит блоков. Добавьте блоки.`);
       return;
     }
 
-    // Используем non‑null assertion, так как выше проверено, что blocks определён и непустой
-    const layoutBlock: LayoutBlock | undefined = botConfig.interface!.blocks.find(
+    // Используем общее определение типа TelegramLayoutBlock вместо локального LayoutBlock
+    const layoutBlock: TelegramLayoutBlock | undefined = botConfig.interface!.blocks.find(
       (block: any) => block.alias === layoutAlias
     );
 
@@ -73,6 +67,9 @@ export async function sendLayoutBlock(
       storeMessageId(ctx, msg.message_id);
       return;
     }
+
+    // Обновляем текущее состояние
+    ctx.session.currentState = layoutBlock;
 
     if (layoutBlock.clearPreviousMessages && ctx.chat) {
       log('debug', `Перед отправкой LayoutBlock "${layoutBlock.name}" очищаем предыдущие сообщения.`);

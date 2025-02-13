@@ -1,9 +1,7 @@
 // Path: src/plugins/TelegramAPI/utils/BotUtils/BotConfig.ts
-// Version: 1.4.0-stable+goBack_fix
-//
-// [CHANGELOG]
-// - Обновлён конструктор для гарантии наличия свойства interface с дефолтными значениями.
-import type { UnifiedBotConfig, UnifiedBotInterface } from './initializeBots';
+// Version: 1.4.1-refactored
+// Рефакторинг: Импорты типов UnifiedBotConfig и UnifiedBotInterface обновлены для использования общего файла TelegramBlocksTypes.ts.
+import type { UnifiedBotConfig, UnifiedBotInterface } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
 
 const defaultInterface: UnifiedBotInterface = {
   blocks: [],

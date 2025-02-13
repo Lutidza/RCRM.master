@@ -1,19 +1,9 @@
 // Path: src/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages.ts
-// Version: 1.3.5-goBack_fix
-//
-// [CHANGELOG]
-// - Обновлён тип SessionData: добавлены stateStack, previousState и isBanned для поддержки go_back_state.
-import type { Context, SessionFlavor } from 'grammy';
+// Version: 1.3.6-refactored
+// Рефакторинг: Импорты типов SessionData и BotContext заменены на общий файл TelegramBlocksTypes.ts.
+
 import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
-
-export interface SessionData {
-  previousMessages: number[];
-  stateStack: any[];
-  previousState?: any;
-  isBanned: boolean;
-}
-
-export type BotContext = Context & SessionFlavor<SessionData>;
+import type { BotContext } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
 
 export async function clearPreviousMessages(ctx: BotContext): Promise<void> {
   if (!ctx.chat || !ctx.session || !Array.isArray(ctx.session.previousMessages)) {
@@ -32,6 +22,7 @@ export async function clearPreviousMessages(ctx: BotContext): Promise<void> {
       } catch (error: any) {}
     }
   } catch (err: any) {
+    // Обработка ошибки
   } finally {
     ctx.session.previousMessages = [];
   }
