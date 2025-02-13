@@ -1,8 +1,10 @@
 // Path: src/plugins/TelegramAPI/utils/BotUtils/initializeBots.ts
-// Version: 1.4.4-refactored
-// Рефакторинг: Обновлены импорты типов (BotContext, SessionData) из общего файла TelegramBlocksTypes.ts,
+// Version: 1.4.7-refactored
+// Рефакторинг: Обновлены импорты типов (BotContext, SessionData) из единого файла TelegramBlocksTypes.ts,
 // добавлено явное указание типа для начального состояния сессии с двумя типовыми аргументами,
-// а также оставлены отдельные вызовы bot.use для регистрации различных middleware.
+// оставлены отдельные вызовы bot.use для регистрации различных middleware.
+// Добавлена логика обновления описания бота на этапе инициализации (до вызова bot.start()).
+// Теперь инициализируются только боты, у которых поле enabled имеет значение "enabled".
 
 import type { Payload } from 'payload';
 import { Bot as TelegramBot, session } from 'grammy';
@@ -10,7 +12,7 @@ import { Bot as TelegramBot, session } from 'grammy';
 import { bannedClientHook } from '@/plugins/TelegramAPI/utils/ClientUtils/bannedClient';
 import { processClient } from '@/plugins/TelegramAPI/utils/ClientUtils/processClient';
 import { sendLayoutBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/LayoutBlock/LayoutBlock';
-import { processMessageBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/MessageBlock/index';
+import { processMessageBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/MessageBlock/MessageBlock';
 import { renderCatalogBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/renderCatalogBlock';
 import { handleCatalogEvent } from '@/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/CatalogEventHandlers';
 import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
@@ -73,6 +75,7 @@ export function createUnifiedBotConfig(rawBotData: any): UnifiedBotConfig {
 export async function initializeBots(payload: Payload): Promise<void> {
   try {
     log('info', 'Поиск активных ботов...', payload);
+    // Фильтрация по полю enabled: включаются только боты, у которых enabled === "enabled"
     const { docs: bots } = await payload.find({
       collection: 'bots',
       where: { enabled: { equals: 'enabled' } },
@@ -82,6 +85,11 @@ export async function initializeBots(payload: Payload): Promise<void> {
 
     for (const botData of bots) {
       const unifiedBotData = createUnifiedBotConfig(botData);
+      // Дополнительная проверка: инициализируем только, если enabled === "enabled"
+      if (unifiedBotData.enabled !== 'enabled') {
+        log('info', `Бот "${unifiedBotData.name}" не включён (enabled=${unifiedBotData.enabled}). Пропускаем инициализацию.`, payload);
+        continue;
+      }
       const botConfig = new BotConfig(unifiedBotData);
 
       console.log('BotConfig:', JSON.stringify(botConfig, null, 2));
@@ -107,6 +115,7 @@ async function initBot(payload: Payload, botConfig: BotConfig): Promise<void> {
           previousMessages: [] as number[],
           stateStack: [] as any[],
           previousState: undefined,
+          currentState: undefined,
           isBanned: false,
         }),
       })
@@ -114,6 +123,16 @@ async function initBot(payload: Payload, botConfig: BotConfig): Promise<void> {
 
     // Регистрация middleware для проверки статуса клиента (бан).
     bot.use(bannedClientHook(payload));
+
+    // Обновляем описание бота, если оно задано в настройках (админке) на этапе инициализации
+    if (botConfig.description) {
+      try {
+        await bot.api.setMyDescription(botConfig.description);
+        log('info', `Описание бота успешно обновлено.`, payload);
+      } catch (error: any) {
+        log('error', `Ошибка при обновлении описания бота: ${error.message}`, payload);
+      }
+    }
 
     // Обработка команды /start
     bot.command('start', async (ctx) => {
@@ -186,7 +205,7 @@ async function initBot(payload: Payload, botConfig: BotConfig): Promise<void> {
               break;
             }
             case 'message': {
-              await processMessageBlock(ctx, { message: callbackAlias });
+              await processMessageBlock(ctx, { text: callbackAlias });
               log('info', `MessageBlock "${callbackAlias}" успешно обработан.`, payload);
               break;
             }
