@@ -1,9 +1,12 @@
-// Путь: src/blocks/TelegramAPI/MessageBlock/config.ts
-// Версия: 1.2.0
+// Path: src/blocks/TelegramAPI/MessageBlock/config.ts
+// Version: 1.2.1
 //
 // MessageBlock используется для отправки текстовых сообщений и/или медиа.
-// Это базовый блок для вывода информации пользователю.
+// Доработка: Добавлено поле "buttons" для вложенных кнопок, которые будут прикреплены к тому же сообщению.
+// При использовании MessageBlock дочерний ButtonBlock отображается без вывода своего поля description.
+
 import type { Block } from 'payload';
+import ButtonBlock from '@/blocks/TelegramAPI/ButtonBlock/config';
 
 const MessageBlock: Block = {
   slug: 'message-blocks',
@@ -20,7 +23,7 @@ const MessageBlock: Block = {
       defaultValue: 'MessageBlock',
       admin: { hidden: true },
     },
-    // Текст сообщения
+    // Обязательное поле для текста сообщения
     {
       name: 'text',
       type: 'textarea',
@@ -39,6 +42,18 @@ const MessageBlock: Block = {
       label: 'Медиа-файл',
       admin: {
         description: 'Загрузите изображение или другое медиа, которое будет отправлено с сообщением (необязательно).',
+      },
+    },
+    // Поле для кнопок. При использовании как дочернего блока MessageBlock
+    // выводятся только кнопки (описание из ButtonBlock не используется).
+    {
+      name: 'buttons',
+      type: 'blocks',
+      label: 'Кнопки',
+      blocks: [ButtonBlock],
+      required: false,
+      admin: {
+        description: 'Добавьте кнопки, которые будут прикреплены к этому сообщению. Если ButtonBlock используется внутри, его описание игнорируется.',
       },
     },
   ],

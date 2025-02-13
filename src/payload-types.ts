@@ -832,6 +832,10 @@ export interface MessageBlock {
    * Загрузите изображение или другое медиа, которое будет отправлено с сообщением (необязательно).
    */
   media?: (number | null) | Media;
+  /**
+   * Добавьте кнопки, которые будут прикреплены к этому сообщению. Если ButtonBlock используется внутри, его описание игнорируется.
+   */
+  buttons?: ButtonBlock[] | null;
   id?: string | null;
   blockName?: string | null;
 }
@@ -842,7 +846,7 @@ export interface MessageBlock {
 export interface ButtonBlock {
   blockType: 'button-blocks';
   /**
-   * Введите описание для кнопочного блока, которое будет отображаться в Telegram вместо фиксированного текста "Please choose an option:".
+   * Введите описание для кнопочного блока, которое будет отображаться в Telegram вместо фиксированного текста "Выберите действие:".
    */
   description?: string | null;
   buttons?:
@@ -2134,6 +2138,11 @@ export interface MessageBlockSelect<T extends boolean = true> {
   blockType?: T;
   text?: T;
   media?: T;
+  buttons?:
+    | T
+    | {
+        'button-blocks'?: T | ButtonBlockSelect<T>;
+      };
   id?: T;
   blockName?: T;
 }
