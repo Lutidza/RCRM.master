@@ -1,10 +1,11 @@
 // Path: src/plugins/TelegramAPI/utils/BotUtils/initializeBots.ts
 // Version: 1.4.7-refactored
-// Рефакторинг: Обновлены импорты типов (BotContext, SessionData) из единого файла TelegramBlocksTypes.ts,
+// Рефакторинг: Обновлены импорты типов (BotContext, SessionData, UnifiedBotInterface) из единого файла TelegramBlocksTypes.ts,
 // добавлено явное указание типа для начального состояния сессии с двумя типовыми аргументами,
 // оставлены отдельные вызовы bot.use для регистрации различных middleware.
 // Добавлена логика обновления описания бота на этапе инициализации (до вызова bot.start()).
 // Теперь инициализируются только боты, у которых поле enabled имеет значение "enabled".
+// Добавлено новое свойство protectContent в UnifiedBotConfig и передаётся из raw данных.
 
 import type { Payload } from 'payload';
 import { Bot as TelegramBot, session } from 'grammy';
@@ -19,16 +20,9 @@ import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
 import { BotConfig } from '@/plugins/TelegramAPI/utils/BotUtils/BotConfig';
 import { goBackState } from '@/plugins/TelegramAPI/utils/SystemUtils/goBackState';
 // Импорт типов из общего файла
-import type { BotContext, SessionData } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
+import type { BotContext, SessionData, UnifiedBotInterface } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
 
 export type { BotContext };
-
-export interface UnifiedBotInterface {
-  blocks: any[];
-  defaultStartLayout: string;
-  defaultFirstVisitLayout: string;
-  total_visit: number;
-}
 
 export interface UnifiedBotConfig {
   id: number;
@@ -36,6 +30,7 @@ export interface UnifiedBotConfig {
   token: string;
   description?: string;
   enabled: string;
+  protectContent?: boolean;
   initialization_status: string;
   last_initialized?: string;
   interface?: Partial<UnifiedBotInterface>;
@@ -59,6 +54,7 @@ export function createUnifiedBotConfig(rawBotData: any): UnifiedBotConfig {
     token: rawBotData.token,
     description: rawBotData.description,
     enabled: rawBotData.enabled,
+    protectContent: rawBotData.protectContent, // Передаем значение поля protectContent из raw данных
     initialization_status: rawBotData.initialization_status,
     last_initialized: rawBotData.last_initialized,
     interface: {
@@ -75,7 +71,7 @@ export function createUnifiedBotConfig(rawBotData: any): UnifiedBotConfig {
 export async function initializeBots(payload: Payload): Promise<void> {
   try {
     log('info', 'Поиск активных ботов...', payload);
-    // Фильтрация по полю enabled: включаются только боты, у которых enabled === "enabled"
+    // Фильтрация: инициализируются только боты, у которых enabled === "enabled"
     const { docs: bots } = await payload.find({
       collection: 'bots',
       where: { enabled: { equals: 'enabled' } },
@@ -85,7 +81,6 @@ export async function initializeBots(payload: Payload): Promise<void> {
 
     for (const botData of bots) {
       const unifiedBotData = createUnifiedBotConfig(botData);
-      // Дополнительная проверка: инициализируем только, если enabled === "enabled"
       if (unifiedBotData.enabled !== 'enabled') {
         log('info', `Бот "${unifiedBotData.name}" не включён (enabled=${unifiedBotData.enabled}). Пропускаем инициализацию.`, payload);
         continue;
@@ -108,7 +103,6 @@ async function initBot(payload: Payload, botConfig: BotConfig): Promise<void> {
     }
     const bot = new TelegramBot<BotContext>(botConfig.token);
 
-    // Регистрация middleware сессии с явным указанием типа начального состояния и двух типовых аргументов.
     bot.use(
       session<SessionData, BotContext>({
         initial: (): SessionData => ({
@@ -117,14 +111,13 @@ async function initBot(payload: Payload, botConfig: BotConfig): Promise<void> {
           previousState: undefined,
           currentState: undefined,
           isBanned: false,
+          botConfig: botConfig, // Сохраняем настройки бота в сессии
         }),
       })
     );
 
-    // Регистрация middleware для проверки статуса клиента (бан).
     bot.use(bannedClientHook(payload));
 
-    // Обновляем описание бота, если оно задано в настройках (админке) на этапе инициализации
     if (botConfig.description) {
       try {
         await bot.api.setMyDescription(botConfig.description);
@@ -134,7 +127,6 @@ async function initBot(payload: Payload, botConfig: BotConfig): Promise<void> {
       }
     }
 
-    // Обработка команды /start
     bot.command('start', async (ctx) => {
       try {
         log('info', `Получена команда /start от пользователя ${ctx.from?.id}.`, payload);
@@ -157,7 +149,6 @@ async function initBot(payload: Payload, botConfig: BotConfig): Promise<void> {
           if (layoutAlias) {
             const layoutBlock = botConfig.interface.blocks.find((block: any) => block.alias === layoutAlias);
             if (layoutBlock) {
-              // Сохраняем текущее состояние для возможности возврата
               ctx.session.previousState = layoutBlock;
               await sendLayoutBlock(ctx, botConfig, payload, layoutAlias);
             } else {
@@ -169,12 +160,12 @@ async function initBot(payload: Payload, botConfig: BotConfig): Promise<void> {
         } else {
           await ctx.reply('Ваш аккаунт заблокирован.');
         }
+        ctx.session.botConfig = botConfig; // Обновляем настройки бота в сессии
       } catch (error: any) {
         log('error', `Ошибка обработки команды /start: ${error.message}`, payload);
       }
     });
 
-    // Обработка callback‑запросов
     bot.on('callback_query:data', async (ctx) => {
       if (!ctx.callbackQuery || !ctx.callbackQuery.data) return;
       try {
@@ -183,16 +174,12 @@ async function initBot(payload: Payload, botConfig: BotConfig): Promise<void> {
         const cbType = parts[0]?.trim() ?? '';
         const callbackAlias = parts[1]?.trim() ?? '';
 
-        // Если callback типа "layout" и alias равен "go_back_state", перенаправляем в goBackState
         if (cbType === 'layout' && callbackAlias === 'go_back_state') {
           await goBackState(ctx, payload, botConfig);
-        }
-        // Обработка типов, связанных с каталогом
-        else if (cbType === 'catalogCategory' || cbType === 'catalogLoadMore') {
+        } else if (cbType === 'catalogCategory' || cbType === 'catalogLoadMore') {
           await handleCatalogEvent(cbType, callbackAlias, '', ctx, payload);
           log('info', `Callback "${cbType}|${callbackAlias}" обработан через handleCatalogEvent.`, payload);
-        }
-        else {
+        } else {
           switch (cbType) {
             case 'layout': {
               const layoutBlock = botConfig.interface.blocks.find((block: any) => block.alias === callbackAlias);

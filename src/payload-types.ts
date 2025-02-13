@@ -798,6 +798,10 @@ export interface Bot {
    * Enter the bot description (e.g., "CRM Connector Bot for order management").
    */
   description?: string | null;
+  /**
+   * Если включено, пересылка, копирование и сохранение сообщений, лейаутов и кнопок из бота будут запрещены (параметр protect_content).
+   */
+  protectContent?: boolean | null;
   interface: {
     blocks?: (MessageBlock | ButtonBlock | LayoutBlock | CommandBlock | CatalogBlock)[] | null;
     /**
@@ -2109,6 +2113,7 @@ export interface BotsSelect<T extends boolean = true> {
   name?: T;
   token?: T;
   description?: T;
+  protectContent?: T;
   interface?:
     | T
     | {

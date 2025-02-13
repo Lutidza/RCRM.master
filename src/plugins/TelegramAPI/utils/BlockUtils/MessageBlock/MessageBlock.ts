@@ -1,48 +1,24 @@
-// Path: src/plugins/TelegramAPI/utils/BlockUtils/MessageBlock/index.TelegramAPI.ts
-// Version: 1.0.11
+// Path: src/plugins/TelegramAPI/utils/BlockUtils/MessageBlock/MessageBlock.ts
+// Version: 1.0.12-refactored
 //
 // This utility processes a MessageBlock by sending its content using HTML formatting via grammY.
-// For testing purposes, if a media file is attached, a fixed URL is used.
-// Now, if a MessageBlock contains a "buttons" field (provided via ButtonBlock),
-// the buttons are attached to the same message via an inline keyboard.
-// In this case, if the nested ButtonBlock does not supply a callbackType,
-// a default value ("layout") is used so that the resulting callback_data has the form "<type>|<alias>".
+// If a MessageBlock contains a "buttons" field (provided via ButtonBlock), the buttons are attached via an inline keyboard.
+// Added option protect_content if the bot is configured to protect content.
 
-import type { Context, SessionFlavor } from 'grammy';
+import type { BotContext } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
 import { InlineKeyboard } from 'grammy';
 
-// Локальное объявление типа BotContext (для удобства). В реальном проекте можно использовать импорт из общего файла.
-interface SessionData {
-  previousMessages: number[];
-}
-type BotContext = Context & SessionFlavor<SessionData>;
-
-/**
- * For testing purposes, returns a fixed media URL.
- * In production, use getAbsoluteMediaUrl to compute the absolute URL.
- *
- * @param url - The media file URL.
- * @returns The fixed test media URL.
- */
 function getTestMediaUrl(url: string): string {
   console.log(`[DEBUG] Overriding media URL for testing. Original URL: "${url}"`);
   return "https://kvartiry-tbilisi.ru/images/resize/medium/c77626871d5920df7195a89cc44a2c85.jpg";
 }
 
-/**
- * Constructs an inline keyboard from an array of button objects.
- *
- * @param buttons - Array of button objects.
- * @returns An InlineKeyboard instance.
- */
 function buildInlineKeyboard(buttons: any[]): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   buttons.forEach((btn: any) => {
-    // Если callbackType отсутствует или пуст, используем значение по умолчанию "layout"
     const callbackType = btn.callbackType && btn.callbackType.trim() !== '' ? btn.callbackType : 'layout';
     const callbackData = btn.callback_data || '';
     const data = `${callbackType}|${callbackData}`;
-
     if (callbackType === 'link' && btn.url) {
       keyboard.url(btn.text, btn.url);
     } else {
@@ -57,21 +33,15 @@ function buildInlineKeyboard(buttons: any[]): InlineKeyboard {
 
 export async function processMessageBlock(ctx: BotContext, blockData: any): Promise<void> {
   if (!ctx.chat) return;
-
-  // Обязательное поле text из MessageBlock
   const text: string = blockData.text;
-
   try {
-    // Готовим опции для отправки сообщения
     const replyOptions: any = {
       parse_mode: 'HTML',
+      protect_content: ctx.session.botConfig?.protectContent || false,
     };
 
-    // Обработка кнопок: если поле buttons присутствует, пытаемся извлечь кнопки.
     let buttonsArray: any[] = [];
     if (Array.isArray(blockData.buttons) && blockData.buttons.length > 0) {
-      // Если используется обёртка ButtonBlock (то есть, первый элемент имеет вложенное поле "buttons"),
-      // объединяем все внутренние массивы в один.
       if (blockData.buttons[0]?.buttons) {
         blockData.buttons.forEach((btnBlock: any) => {
           if (Array.isArray(btnBlock.buttons)) {
@@ -79,7 +49,6 @@ export async function processMessageBlock(ctx: BotContext, blockData: any): Prom
           }
         });
       } else {
-        // Иначе blockData.buttons – это массив кнопок напрямую.
         buttonsArray = blockData.buttons;
       }
       if (buttonsArray.length > 0) {
@@ -88,7 +57,6 @@ export async function processMessageBlock(ctx: BotContext, blockData: any): Prom
     }
 
     let sentMsg;
-    // Если media задан и не пустой, используем фиксированный URL для тестирования.
     if (blockData.media && typeof blockData.media.url === 'string' && blockData.media.url.trim() !== "") {
       const mediaUrl = getTestMediaUrl(blockData.media.url);
       console.log(`[DEBUG] blockData.media:`);

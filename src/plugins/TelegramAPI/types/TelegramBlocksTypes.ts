@@ -1,9 +1,10 @@
 // Path: src/plugins/TelegramAPI/types/TelegramBlocksTypes.ts
-// Version: 2.0.1
+// Version: 2.0.3
 // Рефакторинг: Объединение всех объявлений полей и типов в один общий файл.
-// Добавлено свойство currentState в интерфейс SessionData для хранения текущего состояния (TelegramLayoutBlock).
+// Добавлены свойства currentState и botConfig в интерфейс SessionData для хранения текущего состояния и настроек бота.
 
 import type { Context, SessionFlavor } from 'grammy';
+import type { BotConfig } from '@/plugins/TelegramAPI/utils/BotUtils/BotConfig';
 
 /** ===============================
  * 1. Типы блоков для Telegram
@@ -108,6 +109,8 @@ export interface SessionData {
   previousState?: any;
   currentState?: TelegramLayoutBlock;
   isBanned: boolean;
+  // Хранит настройки бота, чтобы, например, использовать параметр protectContent
+  botConfig?: BotConfig;
 }
 
 export type BotContext = Context & SessionFlavor<SessionData>;

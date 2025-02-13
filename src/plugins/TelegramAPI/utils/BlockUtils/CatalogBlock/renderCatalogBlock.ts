@@ -2,8 +2,8 @@
 // Version: 1.4.3-refactored
 //
 // [CHANGELOG]
-// - Изменён формат callback‑данных для кнопок категорий: теперь передаётся значение itemsPerPage из настроек блока.
-// - Обновлены импорты типов для использования единого файла типизации (TelegramBlocksTypes.ts).
+// - Формат callback‑данных для кнопок категорий: "catalogCategory|<categoryId>|<itemsPerPage>".
+// - Добавлена опция protect_content, если бот настроен на защиту контента.
 
 import type { Payload } from 'payload';
 import { InlineKeyboard } from 'grammy';
@@ -21,8 +21,6 @@ export async function renderCatalogBlock(
       log('error', 'Контекст чата отсутствует.', payload);
       return;
     }
-
-    // Запрашиваем все категории верхнего уровня
     const categoriesResult = await payload.find({
       collection: 'product-categories',
       where: { parent_id: { equals: null } },
@@ -35,29 +33,19 @@ export async function renderCatalogBlock(
       log('info', 'Категории для отображения отсутствуют.', payload);
       return;
     }
-
-    // Создаём inline-клавиатуру для категорий
     const inlineKeyboard = new InlineKeyboard();
-    // Определяем значение itemsPerPage из настроек блока (если отсутствует – по умолчанию 3)
     const itemsPerPage = block.itemsPerPage ?? 3;
-    // Формируем callback‑данные в формате: "catalogCategory|<categoryId>|<itemsPerPage>"
     categories.forEach((category: any, index: number) => {
       inlineKeyboard.text(category.name, `catalogCategory|${category.id}|${itemsPerPage}`);
-      if ((index + 1) % 2 === 0) {
-        inlineKeyboard.row();
-      }
+      if ((index + 1) % 2 === 0) inlineKeyboard.row();
     });
-
-    // Получаем URL баннера из настроек или используем стандартный
     const bannerUrl = block.banner || 'https://kvartiry-tbilisi.ru/images/demo/catalog_banner-1.png';
-    // Получаем описание, если оно задано, или используем стандартный текст
     const description = block.description || 'Пожалуйста, выберите категорию:';
-
-    // Отправляем сообщение с фото (баннером) и прикреплённой клавиатурой
     const catalogMsg = await ctx.replyWithPhoto(bannerUrl, {
       caption: description,
       parse_mode: 'HTML',
       reply_markup: inlineKeyboard,
+      protect_content: ctx.session.botConfig?.protectContent || false,
     });
     storeMessageId(ctx, catalogMsg.message_id);
     log('info', `Главная страница CatalogBlock успешно отображена для пользователя ${ctx.from?.id}`, payload);

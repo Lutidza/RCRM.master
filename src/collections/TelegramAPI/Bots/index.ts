@@ -1,22 +1,15 @@
-// Path: src/collections/TelegramAPI/Bots/index.TelegramAPI.ts
-// Version: 3.1.5
+// Path: src/collections/TelegramAPI/Bots/index.ts
+// Version: 3.1.6
 //
 // The Bots collection stores each bot's settings: its name, token, description (for updating the Telegram bot),
 // a select field for enabling/disabling the bot, initialization status, and interface settings.
 // The "interface" group contains blocks (using the "blocks" field type) and default layout aliases.
-// The relationship with the Clients collection is established via the standard auto-increment numeric id.
-//
-// This version uses a Tabs Field to separate settings into two tabs in the admin panel:
-// • "Bot Config" – contains basic bot settings, with the fields "Enabled", "Initialization Status" and
-//   "Last Initialization Date" displayed in the sidebar.
-// • "Bot Interface" – contains interface settings (blocks and default layout aliases), with the default layout
-//   fields displayed in the sidebar.
+// This version uses Tabs Field to separate settings into two tabs in the admin panel.
 
 import MessageBlock from '@/blocks/TelegramAPI/MessageBlock/config';
 import ButtonBlock from '@/blocks/TelegramAPI/ButtonBlock/config';
 import LayoutBlock from '@/blocks/TelegramAPI/LayoutBlock/config';
 import CommandBlock from '@/blocks/TelegramAPI/CommandBlock/config';
-
 import type { CollectionConfig } from 'payload';
 import CatalogBlock from "@/blocks/TelegramAPI/CatalogBlock/config";
 
@@ -34,21 +27,18 @@ const Bots: CollectionConfig = {
           label: 'Bot Config',
           description: 'Basic bot settings.',
           fields: [
-            // Bot Name
             {
               name: 'name',
               label: 'Bot Name',
               type: 'text',
               required: true,
             },
-            // Telegram Bot Token
             {
               name: 'token',
               label: 'Telegram Bot Token',
               type: 'text',
               required: true,
             },
-            // Bot Description (textarea)
             {
               name: 'description',
               type: 'textarea',
@@ -58,7 +48,16 @@ const Bots: CollectionConfig = {
                   'Enter the bot description (e.g., "CRM Connector Bot for order management").',
               },
             },
-
+            {
+              name: 'protectContent',
+              type: 'checkbox',
+              label: 'Защита контента',
+              defaultValue: false,
+              admin: {
+                description:
+                  'Если включено, пересылка, копирование и сохранение сообщений, лейаутов и кнопок из бота будут запрещены (параметр protect_content).',
+              },
+            },
           ],
         },
         {
@@ -112,7 +111,6 @@ const Bots: CollectionConfig = {
         },
       ],
     },
-    // Enabled field as select with two options; moved to sidebar.
     {
       name: 'enabled',
       type: 'select',
@@ -128,7 +126,6 @@ const Bots: CollectionConfig = {
         description: 'Select whether the bot is enabled or disabled.',
       },
     },
-    // Initialization Status field; moved to sidebar.
     {
       name: 'initialization_status',
       type: 'select',
@@ -144,7 +141,6 @@ const Bots: CollectionConfig = {
         position: 'sidebar',
       },
     },
-    // Last Initialization Date field; moved to sidebar.
     {
       name: 'last_initialized',
       type: 'date',

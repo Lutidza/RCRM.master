@@ -1,10 +1,10 @@
 // Path: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/renderCategoryItems.ts
-// Version: 1.4.11-refactored
+// Version: 1.4.12-refactored
 //
 // [CHANGELOG]
-// - Функция теперь принимает внешний параметр clearMessages, который полностью определяет, нужно ли очищать предыдущие сообщения.
-// - Логика вывода информации о категории, подкатегориях и товарах с пагинацией остаётся прежней.
-// - Обновлены импорты типов для использования единого файла типизации (TelegramBlocksTypes.ts).
+// - Добавлена опция protect_content во всех вызовах ctx.reply и ctx.replyWithPhoto,
+//   чтобы при включенной защите контента сообщения, описания категорий, подкатегории и навигационные сообщения были защищены.
+// - Остальная логика рендеринга категорий, подкатегорий и товаров с пагинацией остается прежней.
 
 import type { Payload } from 'payload';
 import type { BotContext, RenderOptions } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
@@ -26,7 +26,6 @@ export async function renderCategoryItems(
       log('error', 'Контекст чата отсутствует.', payload);
       return;
     }
-    // Полностью полагаемся на внешний параметр clearMessages
     if (clearMessages) {
       await clearPreviousMessages(ctx);
     }
@@ -36,7 +35,9 @@ export async function renderCategoryItems(
     });
     if (!category) {
       log('error', `Категория с ID "${categoryId}" не найдена.`, payload);
-      const msg = await ctx.reply('Ошибка: категория не найдена.');
+      const msg = await ctx.reply('Ошибка: категория не найдена.', {
+        protect_content: ctx.session.botConfig?.protectContent || false,
+      });
       storeMessageId(ctx, msg.message_id);
       return;
     }
@@ -47,6 +48,7 @@ export async function renderCategoryItems(
     const categoryMsg = await ctx.replyWithPhoto(categoryMedia[0].url, {
       caption: categoryCaption,
       parse_mode: 'HTML',
+      protect_content: ctx.session.botConfig?.protectContent || false,
     });
     storeMessageId(ctx, categoryMsg.message_id);
 
@@ -76,7 +78,9 @@ export async function renderCategoryItems(
     }
 
     if (subcategories.length === 0 && products.length === 0) {
-      const emptyMessage = await ctx.reply('Категория пуста. Нет данных для отображения.');
+      const emptyMessage = await ctx.reply('Категория пуста. Нет данных для отображения.', {
+        protect_content: ctx.session.botConfig?.protectContent || false,
+      });
       storeMessageId(ctx, emptyMessage.message_id);
       return;
     }
@@ -85,11 +89,12 @@ export async function renderCategoryItems(
       const subKeyboard = new InlineKeyboard();
       subcategories.forEach((subcat: any, index: number) => {
         subKeyboard.text(subcat.name, `catalogCategory|${subcat.id}`);
-        if ((index + 1) % 2 === 0) {
-          subKeyboard.row();
-        }
+        if ((index + 1) % 2 === 0) subKeyboard.row();
       });
-      const subMsg = await ctx.reply('Подкатегории:', { reply_markup: subKeyboard });
+      const subMsg = await ctx.reply('Подкатегории:', {
+        reply_markup: subKeyboard,
+        protect_content: ctx.session.botConfig?.protectContent || false,
+      });
       storeMessageId(ctx, subMsg.message_id);
     }
 
@@ -97,20 +102,25 @@ export async function renderCategoryItems(
       for (const product of products) {
         await renderProductCard(ctx, product.id, payload);
       }
-      // Кнопка "Загрузить ещё" отображается только если текущая страница меньше общего числа страниц
       if (options.page < totalPages) {
         const navKeyboard = new InlineKeyboard().text(
           "Загрузить ещё",
           `catalogLoadMore|${categoryId}|${options.page + 1}|${options.itemsPerPage}`
         );
-        const navMsg = await ctx.reply(`Страница ${options.page}`, { reply_markup: navKeyboard });
+        const navMsg = await ctx.reply(`Страница ${options.page}`, {
+          parse_mode: 'HTML',
+          reply_markup: navKeyboard,
+          protect_content: ctx.session.botConfig?.protectContent || false,
+        });
         storeMessageId(ctx, navMsg.message_id);
       }
     }
     log('info', `Элементы категории успешно отправлены для ID: ${categoryId}.`, payload);
   } catch (error: any) {
     log('error', `Ошибка при рендеринге элементов категории: ${error.message}`, payload);
-    const errorMsg = await ctx.reply('Произошла ошибка при загрузке данных категории.');
+    const errorMsg = await ctx.reply('Произошла ошибка при загрузке данных категории.', {
+      protect_content: ctx.session.botConfig?.protectContent || false,
+    });
     storeMessageId(ctx, errorMsg.message_id);
   }
 }

@@ -1,6 +1,8 @@
 // Path: src/plugins/TelegramAPI/utils/BotUtils/BotConfig.ts
-// Version: 1.4.1-refactored
-// Рефакторинг: Импорты типов UnifiedBotConfig и UnifiedBotInterface обновлены для использования общего файла TelegramBlocksTypes.ts.
+// Version: 1.4.7-refactored
+//
+// Рефакторинг: Обновлён конструктор для включения нового свойства protectContent.
+
 import type { UnifiedBotConfig, UnifiedBotInterface } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
 
 const defaultInterface: UnifiedBotInterface = {
@@ -19,6 +21,7 @@ export class BotConfig {
   public initialization_status: string;
   public last_initialized?: string;
   public interface: UnifiedBotInterface;
+  public protectContent: boolean;
 
   constructor(data: UnifiedBotConfig) {
     this.id = data.id;
@@ -28,16 +31,15 @@ export class BotConfig {
     this.enabled = data.enabled;
     this.initialization_status = data.initialization_status;
     this.last_initialized = data.last_initialized;
-    // Объединяем переданные данные с дефолтными значениями
     this.interface = {
       blocks: data.interface?.blocks ?? defaultInterface.blocks,
       defaultStartLayout: data.interface?.defaultStartLayout ?? defaultInterface.defaultStartLayout,
       defaultFirstVisitLayout: data.interface?.defaultFirstVisitLayout ?? defaultInterface.defaultFirstVisitLayout,
-      total_visit:
-        typeof data.interface?.total_visit === 'number'
-          ? data.interface.total_visit
-          : defaultInterface.total_visit,
+      total_visit: typeof data.interface?.total_visit === 'number'
+        ? data.interface.total_visit
+        : defaultInterface.total_visit,
     };
+    this.protectContent = (data as any).protectContent ?? false;
   }
 
   get telegramApiToken(): string {
