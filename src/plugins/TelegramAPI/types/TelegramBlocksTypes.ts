@@ -1,14 +1,11 @@
 // Path: src/plugins/TelegramAPI/types/TelegramBlocksTypes.ts
-// Version: 2.0.3
-// Рефакторинг: Объединение всех объявлений полей и типов в один общий файл.
-// Добавлены свойства currentState и botConfig в интерфейс SessionData для хранения текущего состояния и настроек бота.
+// Version: 2.0.5-protectContent
+// ----------------------------------------------------------------------------
+// Добавлено поле protectContent?: boolean в UnifiedBotConfig
+// для поддержки кода в initializeBots.ts и BotConfig.ts
 
 import type { Context, SessionFlavor } from 'grammy';
 import type { BotConfig } from '@/plugins/TelegramAPI/utils/BotUtils/BotConfig';
-
-/** ===============================
- * 1. Типы блоков для Telegram
- * =============================== */
 
 export enum BlockType {
   Layout = 'layout-blocks',
@@ -57,29 +54,17 @@ export type TelegramSubBlock =
   | TelegramButtonBlock
   | TelegramCommandBlock;
 
-/** ====================================
- * 2. Типы для клиентских данных
- * ==================================== */
-
 export interface FromData {
   first_name?: string;
   last_name?: string;
   username?: string;
 }
 
-/** ====================================
- * 3. Типы для рендеринга элементов каталога
- * ==================================== */
-
 export interface RenderOptions {
   page: number;
   itemsPerPage: number;
   displayMode: 'subcategories' | 'products' | 'all';
 }
-
-/** ====================================
- * 4. Типы для настроек бота
- * ==================================== */
 
 export interface UnifiedBotInterface {
   blocks: TelegramSubBlock[];
@@ -88,6 +73,10 @@ export interface UnifiedBotInterface {
   total_visit: number;
 }
 
+/**
+ * [CHANGE] Добавляем protectContent?: boolean, чтобы
+ * TS понимал, что такое поле может прийти из rawBotData
+ */
 export interface UnifiedBotConfig {
   id: number;
   name: string;
@@ -97,11 +86,11 @@ export interface UnifiedBotConfig {
   initialization_status: string;
   last_initialized?: string;
   interface?: Partial<UnifiedBotInterface>;
-}
+  allowedCommands?: string[];
 
-/** ====================================
- * 5. Типы для сессии и контекста бота
- * ==================================== */
+  // [CHANGE] Необходимо, чтобы не было ошибки
+  protectContent?: boolean;
+}
 
 export interface SessionData {
   previousMessages: number[];
@@ -109,7 +98,7 @@ export interface SessionData {
   previousState?: any;
   currentState?: TelegramLayoutBlock;
   isBanned: boolean;
-  // Хранит настройки бота, чтобы, например, использовать параметр protectContent
+
   botConfig?: BotConfig;
 }
 

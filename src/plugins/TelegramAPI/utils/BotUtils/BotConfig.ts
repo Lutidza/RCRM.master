@@ -1,10 +1,13 @@
 // Path: src/plugins/TelegramAPI/utils/BotUtils/BotConfig.ts
-// Version: 1.4.7-refactored
+// Version: 1.4.9-extended
 //
-// Рефакторинг: Обновлён конструктор для включения нового свойства protectContent.
+// Рефакторинг: добавлено новое поле allowedCommands (опциональное),
+// а также учтено существование поля protectContent в UnifiedBotConfig
+// (для избежания ошибки TS2339). Остальной код сохранён из 1.4.7-refactored.
 
 import type { UnifiedBotConfig, UnifiedBotInterface } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
 
+// Значения по умолчанию для интерфейса бота
 const defaultInterface: UnifiedBotInterface = {
   blocks: [],
   defaultStartLayout: 'start',
@@ -12,6 +15,10 @@ const defaultInterface: UnifiedBotInterface = {
   total_visit: 0,
 };
 
+/**
+ * Класс BotConfig инкапсулирует все настройки бота (полученные из UnifiedBotConfig),
+ * включая интерфейс и дополнительные поля (protectContent, allowedCommands, и т.д.).
+ */
 export class BotConfig {
   public id: number;
   public name: string;
@@ -23,6 +30,9 @@ export class BotConfig {
   public interface: UnifiedBotInterface;
   public protectContent: boolean;
 
+  // [CHANGE] Добавлено новое поле для списка допустимых команд
+  public allowedCommands?: string[];
+
   constructor(data: UnifiedBotConfig) {
     this.id = data.id;
     this.name = data.name;
@@ -31,15 +41,23 @@ export class BotConfig {
     this.enabled = data.enabled;
     this.initialization_status = data.initialization_status;
     this.last_initialized = data.last_initialized;
+
+    // Инициализация интерфейса бота
     this.interface = {
       blocks: data.interface?.blocks ?? defaultInterface.blocks,
       defaultStartLayout: data.interface?.defaultStartLayout ?? defaultInterface.defaultStartLayout,
       defaultFirstVisitLayout: data.interface?.defaultFirstVisitLayout ?? defaultInterface.defaultFirstVisitLayout,
-      total_visit: typeof data.interface?.total_visit === 'number'
-        ? data.interface.total_visit
-        : defaultInterface.total_visit,
+      total_visit:
+        typeof data.interface?.total_visit === 'number'
+          ? data.interface?.total_visit
+          : defaultInterface.total_visit,
     };
-    this.protectContent = (data as any).protectContent ?? false;
+
+    // Если поле protectContent есть в data, используем, иначе false
+    this.protectContent = data.protectContent ?? false;
+
+    // Если поле allowedCommands уже есть в data, берём его. Иначе — пустой массив
+    this.allowedCommands = data.allowedCommands ?? [];
   }
 
   get telegramApiToken(): string {

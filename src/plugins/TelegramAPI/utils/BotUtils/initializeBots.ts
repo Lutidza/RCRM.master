@@ -1,11 +1,10 @@
 // Path: src/plugins/TelegramAPI/utils/BotUtils/initializeBots.ts
-// Version: 1.4.7-refactored
-// Рефакторинг: Обновлены импорты типов (BotContext, SessionData, UnifiedBotInterface) из единого файла TelegramBlocksTypes.ts,
-// добавлено явное указание типа для начального состояния сессии с двумя типовыми аргументами,
-// оставлены отдельные вызовы bot.use для регистрации различных middleware.
-// Добавлена логика обновления описания бота на этапе инициализации (до вызова bot.start()).
-// Теперь инициализируются только боты, у которых поле enabled имеет значение "enabled".
-// Добавлено новое свойство protectContent в UnifiedBotConfig и передаётся из raw данных.
+// Version: 1.4.9-add-input-filter
+// ----------------------------------------------------------------------------
+// Рефакторинг: добавлено middleware для фильтрации входящих сообщений (inputMessageFilter).
+// Также реализована логика формирования реестра команд (allowedCommands) на основе
+// CommandBlock и жёстко прописанных команд (например, /start).
+// + учитывается поле protectContent из UnifiedBotConfig.
 
 import type { Payload } from 'payload';
 import { Bot as TelegramBot, session } from 'grammy';
@@ -19,28 +18,17 @@ import { handleCatalogEvent } from '@/plugins/TelegramAPI/utils/BlockUtils/Catal
 import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
 import { BotConfig } from '@/plugins/TelegramAPI/utils/BotUtils/BotConfig';
 import { goBackState } from '@/plugins/TelegramAPI/utils/SystemUtils/goBackState';
-// Импорт типов из общего файла
-import type { BotContext, SessionData, UnifiedBotInterface } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
+import { inputMessageFilter } from '@/plugins/TelegramAPI/utils/SystemUtils/inputMessageFilter';
+
+import type {
+  BotContext,
+  SessionData,
+  UnifiedBotConfig,
+  UnifiedBotInterface,
+} from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
 
 export type { BotContext };
 
-export interface UnifiedBotConfig {
-  id: number;
-  name: string;
-  token: string;
-  description?: string;
-  enabled: string;
-  protectContent?: boolean;
-  initialization_status: string;
-  last_initialized?: string;
-  interface?: Partial<UnifiedBotInterface>;
-}
-
-/**
- * Объединяет данные из объекта бота (из коллекции Bots)
- * в единый объект настроек (UnifiedBotConfig). Если rawBotData.interface присутствует,
- * его поля объединяются с набором дефолтных значений; если отсутствует – подставляются дефолтные значения.
- */
 export function createUnifiedBotConfig(rawBotData: any): UnifiedBotConfig {
   const defaultInterface: UnifiedBotInterface = {
     blocks: [],
@@ -48,30 +36,65 @@ export function createUnifiedBotConfig(rawBotData: any): UnifiedBotConfig {
     defaultFirstVisitLayout: 'start_first_visit',
     total_visit: 0,
   };
+
   return {
     id: rawBotData.id,
     name: rawBotData.name,
     token: rawBotData.token,
     description: rawBotData.description,
     enabled: rawBotData.enabled,
-    protectContent: rawBotData.protectContent, // Передаем значение поля protectContent из raw данных
+
+    // [CHANGE] Теперь TS понимает, что protectContent может быть
+    protectContent: rawBotData.protectContent,
+
     initialization_status: rawBotData.initialization_status,
     last_initialized: rawBotData.last_initialized,
     interface: {
-      blocks: Array.isArray(rawBotData.interface?.blocks) ? rawBotData.interface.blocks : defaultInterface.blocks,
-      defaultStartLayout: rawBotData.interface?.defaultStartLayout ?? defaultInterface.defaultStartLayout,
-      defaultFirstVisitLayout: rawBotData.interface?.defaultFirstVisitLayout ?? defaultInterface.defaultFirstVisitLayout,
-      total_visit: typeof rawBotData.interface?.total_visit === 'number'
-        ? rawBotData.interface.total_visit
-        : defaultInterface.total_visit,
+      blocks: Array.isArray(rawBotData.interface?.blocks)
+        ? rawBotData.interface.blocks
+        : defaultInterface.blocks,
+      defaultStartLayout:
+        rawBotData.interface?.defaultStartLayout ?? defaultInterface.defaultStartLayout,
+      defaultFirstVisitLayout:
+        rawBotData.interface?.defaultFirstVisitLayout ?? defaultInterface.defaultFirstVisitLayout,
+      total_visit:
+        typeof rawBotData.interface?.total_visit === 'number'
+          ? rawBotData.interface.total_visit
+          : defaultInterface.total_visit,
     },
+    // allowedCommands пока не задаём, присвоим позже в initBot
   };
+}
+
+/** Формируем список допустимых команд */
+function buildAllowedCommands(botConfig: BotConfig): string[] {
+  const allowed: string[] = [];
+  // Добавим «/start» без слэша
+  allowed.push('start');
+
+  const blocks = botConfig.interface.blocks || [];
+  blocks.forEach((block: any) => {
+    if (
+      block.blockType === 'CommandBlock' ||
+      block.slug === 'command-blocks' ||
+      block.interfaceName === 'CommandBlock'
+    ) {
+      if (typeof block.command === 'string') {
+        const cmd = block.command.trim().replace(/^\//, '');
+        if (cmd && !allowed.includes(cmd)) {
+          allowed.push(cmd);
+        }
+      }
+    }
+  });
+
+  return allowed;
 }
 
 export async function initializeBots(payload: Payload): Promise<void> {
   try {
     log('info', 'Поиск активных ботов...', payload);
-    // Фильтрация: инициализируются только боты, у которых enabled === "enabled"
+
     const { docs: bots } = await payload.find({
       collection: 'bots',
       where: { enabled: { equals: 'enabled' } },
@@ -82,7 +105,7 @@ export async function initializeBots(payload: Payload): Promise<void> {
     for (const botData of bots) {
       const unifiedBotData = createUnifiedBotConfig(botData);
       if (unifiedBotData.enabled !== 'enabled') {
-        log('info', `Бот "${unifiedBotData.name}" не включён (enabled=${unifiedBotData.enabled}). Пропускаем инициализацию.`, payload);
+        log('info', `Бот "${unifiedBotData.name}" отключён, пропускаем.`, payload);
         continue;
       }
       const botConfig = new BotConfig(unifiedBotData);
@@ -101,32 +124,42 @@ async function initBot(payload: Payload, botConfig: BotConfig): Promise<void> {
       log('error', `Пропущен бот "${botConfig.name}": отсутствует токен.`, payload);
       return;
     }
+
     const bot = new TelegramBot<BotContext>(botConfig.token);
 
     bot.use(
       session<SessionData, BotContext>({
         initial: (): SessionData => ({
-          previousMessages: [] as number[],
-          stateStack: [] as any[],
+          previousMessages: [],
+          stateStack: [],
           previousState: undefined,
           currentState: undefined,
           isBanned: false,
-          botConfig: botConfig, // Сохраняем настройки бота в сессии
+          botConfig: botConfig,
         }),
       })
     );
 
     bot.use(bannedClientHook(payload));
 
+    // Сформируем массив допустимых команд
+    const allowedCmds = buildAllowedCommands(botConfig);
+    botConfig.allowedCommands = allowedCmds;
+
+    // Подключаем фильтр входящих сообщений
+    bot.use(inputMessageFilter);
+
+    // Если описание бота есть — обновим
     if (botConfig.description) {
       try {
         await bot.api.setMyDescription(botConfig.description);
-        log('info', `Описание бота успешно обновлено.`, payload);
+        log('info', 'Описание бота успешно обновлено.', payload);
       } catch (error: any) {
         log('error', `Ошибка при обновлении описания бота: ${error.message}`, payload);
       }
     }
 
+    // Обработка /start
     bot.command('start', async (ctx) => {
       try {
         log('info', `Получена команда /start от пользователя ${ctx.from?.id}.`, payload);
@@ -141,13 +174,16 @@ async function initBot(payload: Payload, botConfig: BotConfig): Promise<void> {
           username: ctx.from?.username,
         });
         ctx.session.isBanned = client.isBanned;
+
         if (!client.isBanned) {
-          const layoutAlias = client.total_visit === 1
-            ? botConfig.interface.defaultFirstVisitLayout
-            : botConfig.interface.defaultStartLayout;
+          const layoutAlias =
+            client.total_visit === 1
+              ? botConfig.interface.defaultFirstVisitLayout
+              : botConfig.interface.defaultStartLayout;
           log('info', `Выбран layoutAlias: ${layoutAlias} (client.total_visit=${client.total_visit})`, payload);
+
           if (layoutAlias) {
-            const layoutBlock = botConfig.interface.blocks.find((block: any) => block.alias === layoutAlias);
+            const layoutBlock = botConfig.interface.blocks.find((b: any) => b.alias === layoutAlias);
             if (layoutBlock) {
               ctx.session.previousState = layoutBlock;
               await sendLayoutBlock(ctx, botConfig, payload, layoutAlias);
@@ -160,12 +196,13 @@ async function initBot(payload: Payload, botConfig: BotConfig): Promise<void> {
         } else {
           await ctx.reply('Ваш аккаунт заблокирован.');
         }
-        ctx.session.botConfig = botConfig; // Обновляем настройки бота в сессии
+        ctx.session.botConfig = botConfig;
       } catch (error: any) {
         log('error', `Ошибка обработки команды /start: ${error.message}`, payload);
       }
     });
 
+    // Обработка callback_query
     bot.on('callback_query:data', async (ctx) => {
       if (!ctx.callbackQuery || !ctx.callbackQuery.data) return;
       try {
@@ -182,7 +219,9 @@ async function initBot(payload: Payload, botConfig: BotConfig): Promise<void> {
         } else {
           switch (cbType) {
             case 'layout': {
-              const layoutBlock = botConfig.interface.blocks.find((block: any) => block.alias === callbackAlias);
+              const layoutBlock = botConfig.interface.blocks.find(
+                (block: any) => block.alias === callbackAlias
+              );
               if (layoutBlock) {
                 ctx.session.previousState = layoutBlock;
                 await sendLayoutBlock(ctx, botConfig, payload, callbackAlias);
@@ -215,9 +254,11 @@ async function initBot(payload: Payload, botConfig: BotConfig): Promise<void> {
       }
     });
 
+    // Запуск бота
     bot.start();
     log('info', `🤖 Бот "${botConfig.name}" успешно запущен.`, payload);
 
+    // Обновим статус бота
     await payload.update({
       collection: 'bots',
       id: botConfig.id,
