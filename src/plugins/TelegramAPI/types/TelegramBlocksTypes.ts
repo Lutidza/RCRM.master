@@ -1,8 +1,10 @@
 // Path: src/plugins/TelegramAPI/types/TelegramBlocksTypes.ts
-// Version: 2.0.5-protectContent
-// ----------------------------------------------------------------------------
-// Добавлено поле protectContent?: boolean в UnifiedBotConfig
-// для поддержки кода в initializeBots.ts и BotConfig.ts
+// Version: 2.0.6-protectContent-updated
+
+// Подробные комментарии:
+// - Добавлено поле startMessageId в SessionData
+// - Остальной функционал сохранён
+// - Сохраняем ссылки на BotConfig, чтобы работать со всеми настройками
 
 import type { Context, SessionFlavor } from 'grammy';
 import type { BotConfig } from '@/plugins/TelegramAPI/utils/BotUtils/BotConfig';
@@ -73,10 +75,6 @@ export interface UnifiedBotInterface {
   total_visit: number;
 }
 
-/**
- * [CHANGE] Добавляем protectContent?: boolean, чтобы
- * TS понимал, что такое поле может прийти из rawBotData
- */
 export interface UnifiedBotConfig {
   id: number;
   name: string;
@@ -87,19 +85,19 @@ export interface UnifiedBotConfig {
   last_initialized?: string;
   interface?: Partial<UnifiedBotInterface>;
   allowedCommands?: string[];
-
-  // [CHANGE] Необходимо, чтобы не было ошибки
   protectContent?: boolean;
 }
 
+// [EDIT START] Добавляем новое поле startMessageId
 export interface SessionData {
   previousMessages: number[];
   stateStack: any[];
   previousState?: any;
   currentState?: TelegramLayoutBlock;
   isBanned: boolean;
-
   botConfig?: BotConfig;
+  startMessageId?: number;
 }
+// [EDIT END]
 
 export type BotContext = Context & SessionFlavor<SessionData>;

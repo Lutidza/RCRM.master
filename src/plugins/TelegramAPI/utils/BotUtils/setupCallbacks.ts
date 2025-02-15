@@ -1,0 +1,77 @@
+// Path: src/plugins/TelegramAPI/utils/BotUtils/setupCallbacks.ts
+// Version: 1.0.0-refactored
+// Подробные комментарии в коде:
+// - Этот файл отвечает за регистрацию обработчиков callback_query для Telegram бота.
+// - Функция setupCallbacks регистрирует обработку callback-сообщений.
+// - Обрабатывает типы callback "layout" (открытие лейаута, go_back_state) и другие типы,
+//   при необходимости можно расширить логику обработки.
+// - TODO: добавить обработку других callback-типов, если потребуется.
+
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+import { sendLayoutBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/LayoutBlock/LayoutBlock';
+import { processMessageBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/MessageBlock/MessageBlock';
+import { handleCatalogEvent } from '@/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/CatalogEventHandlers';
+import { goBackState } from '@/plugins/TelegramAPI/utils/SystemUtils/goBackState';
+import type { Bot as TelegramBot } from 'grammy';
+import type { Payload } from 'payload';
+import type { BotContext } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
+import type { BotConfig } from '@/plugins/TelegramAPI/utils/BotUtils/BotConfig';
+
+export function setupCallbacks(
+  bot: TelegramBot<BotContext>,
+  botConfig: BotConfig,
+  payload: Payload
+): void {
+  bot.on('callback_query:data', async (ctx) => {
+    if (!ctx.callbackQuery || !ctx.callbackQuery.data) return;
+    try {
+      const data = ctx.callbackQuery.data;
+      const parts = data.split('|');
+      const cbType = parts[0]?.trim() ?? '';
+      const callbackAlias = parts[1]?.trim() ?? '';
+
+      // Обработка callback типа "layout"
+      if (cbType === 'layout' && callbackAlias === 'go_back_state') {
+        await goBackState(ctx, payload, botConfig);
+      } else if (cbType === 'catalogCategory' || cbType === 'catalogLoadMore') {
+        await handleCatalogEvent(cbType, callbackAlias, '', ctx, payload);
+        log('info', `Callback "${cbType}|${callbackAlias}" обработан через handleCatalogEvent.`, payload);
+      } else {
+        switch (cbType) {
+          case 'layout': {
+            // Открытие лейаута по alias
+            const layoutBlock = botConfig.interface.blocks.find(
+              (block: any) => block.alias === callbackAlias
+            );
+            if (layoutBlock) {
+              ctx.session.previousState = layoutBlock;
+              await sendLayoutBlock(ctx, botConfig, payload, callbackAlias);
+            } else {
+              await ctx.reply(`Ошибка: Лейаут с alias "${callbackAlias}" не найден.`);
+            }
+            break;
+          }
+          case 'message': {
+            await processMessageBlock(ctx, { text: callbackAlias });
+            log('info', `MessageBlock "${callbackAlias}" успешно обработан.`, payload);
+            break;
+          }
+          case 'command': {
+            if (callbackAlias === 'go_back_state') {
+              await goBackState(ctx, payload, botConfig);
+            } else {
+              await ctx.reply(`Неизвестная команда: ${callbackAlias}`);
+            }
+            break;
+          }
+          default: {
+            await ctx.reply(`Неизвестный тип callback: ${cbType}`);
+          }
+        }
+      }
+      await ctx.answerCallbackQuery();
+    } catch (error: any) {
+      log('error', `Ошибка обработки callback_query: ${error.message}`, payload);
+    }
+  });
+}
