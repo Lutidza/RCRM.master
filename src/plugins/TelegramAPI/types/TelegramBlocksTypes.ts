@@ -1,10 +1,8 @@
 // Path: src/plugins/TelegramAPI/types/TelegramBlocksTypes.ts
-// Version: 2.0.6-protectContent-updated
-
-// Подробные комментарии:
-// - Добавлено поле startMessageId в SessionData
-// - Остальной функционал сохранён
-// - Сохраняем ссылки на BotConfig, чтобы работать со всеми настройками
+// Version: 2.1.0
+// [CHANGELOG]
+// - Добавлены поля categoryLayoutMessages и categoryPageMessages в SessionData,
+//   чтобы раздельно хранить обложку/подкатегории и товары/панель навигации.
 
 import type { Context, SessionFlavor } from 'grammy';
 import type { BotConfig } from '@/plugins/TelegramAPI/utils/BotUtils/BotConfig';
@@ -88,7 +86,6 @@ export interface UnifiedBotConfig {
   protectContent?: boolean;
 }
 
-// [EDIT START] Добавляем новое поле startMessageId
 export interface SessionData {
   previousMessages: number[];
   stateStack: any[];
@@ -97,7 +94,11 @@ export interface SessionData {
   isBanned: boolean;
   botConfig?: BotConfig;
   startMessageId?: number;
+
+  // [EDIT START] Новые поля
+  categoryLayoutMessages?: number[];  // обложка и подкатегории
+  categoryPageMessages?: number[];    // товары и панель навигации
+  // [EDIT END]
 }
-// [EDIT END]
 
 export type BotContext = Context & SessionFlavor<SessionData>;
