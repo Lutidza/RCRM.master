@@ -1,14 +1,12 @@
 // Path: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/renderCategoryNav.ts
-// Version: 1.1.0-no-manual-protect
-// [CHANGELOG]
-// - Удалили manual protect_content. rely on monkey-patch.
+// Version: 1.3.0-use-snippet
 
 import type { Payload } from 'payload';
 import { InlineKeyboard } from 'grammy';
 import { storeMessageId } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
 import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
 import { paginateCategoryItems } from './paginateCategoryItems';
-import { renderProductCard } from './renderProductCard';
+import { renderProductSnippet } from './renderProductSnippet';
 import type { BotContext } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
 
 async function clearPageMessages(ctx: BotContext): Promise<void> {
@@ -37,19 +35,20 @@ export async function renderCategoryNav(
     await clearPageMessages(ctx);
 
     const categoryId = parseInt(rawCategoryId, 10);
-    const pagination = await paginateCategoryItems(
+    const productPagination = await paginateCategoryItems(
       payload,
       'products',
       { category_ids: { in: [categoryId] } },
       page,
       itemsPerPage
     );
-    const products = pagination.docs;
-    const totalPages = pagination.totalPages;
+    const products = productPagination.docs;
+    const totalPages = productPagination.totalPages;
 
     if (!products || products.length === 0) {
       const noMoreMsg = await ctx.reply("Нет больше товаров.");
       storeMessageId(ctx, noMoreMsg.message_id);
+      log('info', `Товары закончились для категории ${categoryId}`, payload);
       return;
     }
 
@@ -58,7 +57,7 @@ export async function renderCategoryNav(
     }
 
     for (const product of products) {
-      const productMsgId = await renderProductCard(ctx, product.id, payload);
+      const productMsgId = await renderProductSnippet(ctx, product.id, payload);
       if (productMsgId) {
         ctx.session.categoryPageMessages.push(productMsgId);
       }
@@ -72,8 +71,13 @@ export async function renderCategoryNav(
       navKeyboard.text("Back", `catalogBackPage|${categoryId}|${page - 1}|${itemsPerPage}`);
     }
 
+    // 🛒 Store
+    navKeyboard.text("🛒 Store", "layout|store_home_page");
+
     if (page < totalPages) {
       navKeyboard.text("Next", `catalogLoadMore|${categoryId}|${page + 1}|${itemsPerPage}`);
+    } else {
+      navKeyboard.text("Home", "layout|home_page");
     }
 
     const navMsg = await ctx.reply(`Страница: ${page} из ${totalPages}`, {

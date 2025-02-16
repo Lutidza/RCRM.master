@@ -1,0 +1,1955 @@
+Текущая версия файлов, отталкиваемся дальше от неё. Дорабатываем её. 
+
+-------------------------
+
+
+
+-------------------------
+
+// Path: src/plugins/TelegramAPI/index.TelegramAPI.ts
+// Version: 5.7.1-refactored
+// Подробные комментарии в коде:
+// - Этот файл отвечает за подключение плагина TelegramAPI к Payload CMS.
+// - Ранее использовалась функция initializeBots для инициализации ботов,
+//   теперь импортируется и вызывается функция registerBots из файла registerBots.ts.
+
+import type { Payload, Config, Plugin } from 'payload';
+import Bots from '@/collections/TelegramAPI/Bots';
+import Clients from '@/collections/TelegramAPI/Clients';
+import { registerBots } from '@/plugins/TelegramAPI/utils/BotUtils/registerBots';
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+
+const TelegramAPIPlugin: Plugin = (incomingConfig: Config): Config => {
+  return {
+    ...incomingConfig,
+    collections: [
+      ...(incomingConfig.collections || []),
+      Bots,
+      Clients,
+    ],
+    onInit: async (payload: Payload) => {
+      log('info', 'TelegramAPIPlugin initialization started.', payload);
+      await registerBots(payload);
+      log('info', 'TelegramAPIPlugin registered successfully.', payload);
+    },
+  };
+};
+
+export default TelegramAPIPlugin;
+// Path: src/plugins/TelegramAPI/utils/ClientUtils/processClient.ts
+// Version: 1.3.9-refactored
+// Рефакторинг: Удалено локальное объявление типа FromData, импортирован из общего файла TelegramBlocksTypes.ts.
+// Поля telegramId и botId передаются отдельно, так как они не являются частью данных профиля Telegram.
+
+import type { Payload } from 'payload';
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+import { checkClientStatus } from './checkClientStatus';
+// Импорт типа FromData из общего файла с типами
+import type { FromData } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
+
+export async function processClient(
+  payload: Payload,
+  telegramId: number,
+  botId: number,
+  fromData: FromData
+): Promise<any> {
+  try {
+    log('info', `[processClient] Searching for client with telegram_id=${telegramId} and bot=${botId}`, payload);
+
+    const { docs } = await payload.find({
+      collection: 'clients',
+      where: { telegram_id: { equals: telegramId } },
+      limit: 1,
+    });
+
+    let client: any;
+
+    if (!docs || docs.length === 0) {
+      log('info', "[processClient] No existing client found, creating a new one...", payload);
+      client = await payload.create({
+        collection: 'clients',
+        data: {
+          telegram_id: telegramId,                   // Уникальный идентификатор пользователя Telegram
+          bots: [botId],                             // Идентификатор бота
+          first_name: fromData.first_name ?? "",
+          last_name: fromData.last_name ?? "",
+          user_name: fromData.username || 'anonymous_user',
+          total_visit: 1,                            // Первое посещение
+          last_visit: new Date().toISOString(),      // Текущая дата как дата последнего визита
+          enabled: "enabled"
+          // Поле status не передаётся, чтобы его значение установилось через defaultValue или beforeChange-хук в коллекции.
+        },
+      });
+    } else {
+      const existingClient = docs[0]!;
+      log('info', `[processClient] Client found: ID=${existingClient.id}`, payload);
+      let botsArray: any[] = Array.isArray(existingClient.bots)
+        ? existingClient.bots
+        : existingClient.bots ? [existingClient.bots] : [];
+      if (!botsArray.some(b =>
+        b != null && typeof b === 'object'
+          ? b.id !== undefined && b.id.toString() === botId.toString()
+          : b != null && b.toString() === botId.toString()
+      )) {
+        botsArray.push(botId);
+        log('info', `[processClient] Bot ${botId} added to client ${existingClient.id}`, payload);
+      }
+      client = await payload.update({
+        collection: 'clients',
+        id: existingClient.id,
+        data: {
+          bots: botsArray,
+          first_name: fromData.first_name ?? existingClient.first_name ?? "",
+          last_name: fromData.last_name ?? existingClient.last_name ?? "",
+          user_name: fromData.username || existingClient.user_name || 'anonymous_user',
+          last_visit: new Date().toISOString(),
+          total_visit: (existingClient.total_visit ?? 0) + 1,
+        },
+      });
+    }
+
+    log('debug', `[processClient] Client status: ${client.status}`, payload);
+    const statusAlias = await checkClientStatus(payload, client.status);
+    log('debug', `[processClient] Retrieved status alias: ${statusAlias}`, payload);
+    const isBanned = statusAlias === 'banned';
+
+    if (isBanned) {
+      log('info', `[processClient] Client ID=${client.id} is banned. Updating status...`, payload);
+      client = await payload.update({
+        collection: 'clients',
+        id: client.id,
+        data: {
+          enabled: "disabled",
+        },
+      });
+      client.isBanned = true;
+    } else {
+      client.isBanned = false;
+    }
+
+    return client;
+  } catch (error: any) {
+    log('error', `[processClient] Error processing client: ${error.message}`, payload);
+    return { total_visit: 1 };
+  }
+}
+// Path: src/plugins/TelegramAPI/utils/ClientUtils/checkClientStatus.ts
+// Version: 1.1.5-stable
+//
+// [CHANGELOG]
+// - Добавлена поддержка числовых значений в поле status.
+// - Если status равен undefined или null, возвращается "new" как значение по умолчанию.
+// - Если status – объект с полем alias, возвращается alias; если статус – число или строка, выполняется запрос к коллекции "statuses".
+// - Используется единый логгер log для отладки.
+import type { Payload } from 'payload';
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+
+export async function checkClientStatus(
+  payload: Payload,
+  status: any
+): Promise<string | null> {
+  try {
+    if (status === undefined || status === null) {
+      log('debug', 'checkClientStatus: status is undefined or null, defaulting to "new"');
+      return "new";
+    }
+    if (typeof status === 'object') {
+      if ('alias' in status && typeof status.alias === 'string') {
+        return status.alias;
+      }
+      if ('id' in status) {
+        const statusResult = await payload.find({
+          collection: 'statuses',
+          where: { id: { equals: status.id } },
+          limit: 1,
+        });
+        const statusDoc = statusResult.docs[0];
+        return statusDoc?.alias || "new";
+      }
+    }
+    if (typeof status === 'number' || typeof status === 'string') {
+      const statusResult = await payload.find({
+        collection: 'statuses',
+        where: { id: { equals: status } },
+        limit: 1,
+      });
+      const statusDoc = statusResult.docs[0];
+      return statusDoc?.alias || "new";
+    }
+  } catch (error: any) {
+    log('error', `❌ Ошибка в checkClientStatus: ${error.message}`, payload);
+  }
+  return "new";
+}
+// Path: src/plugins/TelegramAPI/utils/ClientUtils/bannedClient.ts
+// Version: 1.2.3-stable
+//
+// [CHANGELOG]
+// - Объединена логика проверки бана в один middleware.
+// - Сначала проверяется сессионный флаг isBanned; если он установлен, дальнейшая обработка прекращается.
+// - Если флаг не установлен, выполняется проверка статуса клиента через checkClientStatus.
+// - Если alias равен "banned", отправляется сообщение и флаг isBanned сохраняется в сессии.
+// - Используется единый логгер log для отладки.
+import type { Context } from 'grammy';
+import type { Payload } from 'payload';
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+import { checkClientStatus } from './checkClientStatus';
+
+export function bannedClientHook(payload: Payload) {
+  return async (ctx: Context & { session: any }, next: () => Promise<void>): Promise<void> => {
+    try {
+      if (ctx.session.isBanned) {
+        await ctx.reply("💀 Your account is locked! 💀 \n\n🚷 You've been banned.");
+        log('info', 'bannedClientHook: Session indicates client is banned, skipping processing.', payload);
+        return;
+      }
+      if (ctx.from) {
+        const telegramId = ctx.from.id;
+        const { docs } = await payload.find({
+          collection: 'clients',
+          where: { telegram_id: { equals: telegramId } },
+          limit: 1,
+        });
+        const client = docs.length > 0 ? docs[0] : null;
+        if (client && client.status) {
+          const statusAlias = await checkClientStatus(payload, client.status);
+          if (statusAlias === 'banned') {
+            await ctx.reply("💀 Your account is locked! 💀 \n\n🚷 You've been banned.");
+            log('info', `bannedClientHook: Client ID=${client.id} is banned according to DB check.`, payload);
+            ctx.session.isBanned = true;
+            return;
+          }
+        }
+      }
+      await next();
+    } catch (error: any) {
+      log('error', `bannedClientHook: Error checking ban status: ${error.message}`, payload);
+      await next();
+    }
+  };
+}
+// Path: src/plugins/TelegramAPI/utils/BlockUtils/LayoutBlock/LayoutBlock.ts
+// Version: 1.3.9-no-manual-protect
+// [CHANGELOG]
+// - Убрано ручное protect_content. rely on monkey-patch in setupMiddlewares.
+
+import type { Payload } from 'payload';
+import type { BotContext, TelegramLayoutBlock } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
+import { processMessageBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/MessageBlock/MessageBlock';
+import { handleButtonBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/ButtonBlock/ButtonBlock';
+import { renderCatalogBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/renderCatalogBlock';
+import { clearPreviousMessages, storeMessageId } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+
+const blockHandlers: Record<string, (ctx: BotContext, block: any, payload: Payload) => Promise<void>> = {
+  messageblock: processMessageBlock,
+  'message-blocks': processMessageBlock,
+  buttonblock: async (ctx, block, payload) => {
+    const description = block.description || 'Выберите действие:';
+    await handleButtonBlock(ctx, block, description);
+  },
+  'button-blocks': async (ctx, block, payload) => {
+    const description = block.description || 'Выберите действие:';
+    await handleButtonBlock(ctx, block, description);
+  },
+  catalogblock: renderCatalogBlock,
+  'catalog-blocks': renderCatalogBlock,
+};
+
+export async function sendLayoutBlock(
+  ctx: BotContext,
+  botConfig: any,
+  payload: Payload,
+  aliasOverride?: string
+): Promise<void> {
+  const layoutAlias = aliasOverride ?? botConfig.interface?.defaultStartLayout;
+  if (!layoutAlias) {
+    await ctx.reply('Ошибка: Не удалось определить layout alias.');
+    return;
+  }
+
+  try {
+    log('debug', `Используемый layoutAlias: ${layoutAlias}`);
+    if (ctx.session.currentState && ctx.session.currentState.alias !== layoutAlias) {
+      ctx.session.stateStack.push(ctx.session.currentState);
+    }
+
+    if (!botConfig.interface || !botConfig.interface.blocks || botConfig.interface.blocks.length === 0) {
+      await ctx.reply(`Layout "${layoutAlias}" не содержит блоков. Добавьте блоки.`);
+      return;
+    }
+
+    const layoutBlock: TelegramLayoutBlock | undefined = botConfig.interface.blocks.find(
+      (block: any) => block.alias === layoutAlias
+    );
+    if (!layoutBlock) {
+      const msg = await ctx.reply(`Layout "${layoutAlias}" не найден. Добавьте блоки.`);
+      storeMessageId(ctx, msg.message_id);
+      return;
+    }
+
+    ctx.session.currentState = layoutBlock;
+
+    if (layoutBlock.clearPreviousMessages && ctx.chat) {
+      log('debug', `Очищаем предыдущие сообщения перед LayoutBlock "${layoutBlock.name}"`);
+      await clearPreviousMessages(ctx);
+    }
+
+    if (!Array.isArray(layoutBlock.blocks) || layoutBlock.blocks.length === 0) {
+      const msg = await ctx.reply(`Layout "${layoutBlock.name}" пуст. Добавьте блоки.`);
+      storeMessageId(ctx, msg.message_id);
+      return;
+    }
+
+    for (const block of layoutBlock.blocks) {
+      try {
+        const blockType = block.blockType?.toLowerCase();
+        const handler = blockHandlers[blockType];
+        if (handler) {
+          log('debug', `Обрабатываем блок типа "${blockType}"`);
+          await handler(ctx, block, payload);
+        } else {
+          log('error', `Неизвестный тип блока: ${blockType}`, payload);
+          const msg = await ctx.reply(`Неизвестный тип блока: ${block.blockType}`);
+          storeMessageId(ctx, msg.message_id);
+        }
+      } catch (blockError) {
+        log('error', `Ошибка обработки блока: ${(blockError as Error).message}`, payload);
+        const msg = await ctx.reply(`Произошла ошибка при обработке блока: ${layoutBlock.name}`);
+        storeMessageId(ctx, msg.message_id);
+      }
+    }
+  } catch (error: any) {
+    log('error', `Ошибка при обработке лейаута "${layoutAlias}": ${(error as Error).message}`, payload);
+    const errorMsg = await ctx.reply(`Произошла ошибка при обработке лейаута: "${layoutAlias}"`);
+    storeMessageId(ctx, errorMsg.message_id);
+  }
+}
+// Path: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/renderProductDetails.ts
+// Version: 1.0.0
+// [CHANGELOG]
+// - Отображает детальную карточку (полное описание, галерея фото, и т. д.)
+// - Кнопки: «В корзину», «Назад», «Заказать» (примерно)
+
+import type { Payload } from 'payload';
+import { InlineKeyboard } from 'grammy';
+import type { BotContext } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
+import { storeMessageId } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+
+export async function renderProductDetails(
+  ctx: BotContext,
+  productId: string | number,
+  payload: Payload
+): Promise<number | null> {
+  try {
+    if (!ctx.chat) {
+      log('error', 'renderProductDetails: Контекст чата отсутствует.', payload);
+      return null;
+    }
+
+    // Загружаем товар
+    const result = await payload.find({
+      collection: 'products',
+      where: { id: { equals: productId } },
+      limit: 1,
+    });
+    const product = result.docs[0];
+    if (!product) {
+      const notFoundMsg = await ctx.reply("Товар не найден.");
+      storeMessageId(ctx, notFoundMsg.message_id);
+      return notFoundMsg.message_id;
+    }
+
+    // Пример: вытаскиваем всё нужное
+    const { name, price, size, status, images, description } = product as any;
+    const statusAlias = (status?.alias) ? status.alias : 'N/A';
+
+    // HTML для детальной карточки
+    let detailsText = `<b>${name}</b>\n`;
+    detailsText += `<b>Цена:</b> ${price}$\n`;
+    detailsText += `<b>Размер:</b> ${size}\n`;
+    detailsText += `<b>Статус:</b> ${statusAlias}\n\n`;
+    detailsText += `<b>Описание:</b>\n${description || 'Нет описания'}\n\n`;
+    detailsText += `Выберите действие:`;
+
+    // Кнопки (пример)
+    const keyboard = new InlineKeyboard()
+      .text("В корзину", `addToCart|${product.id}`)
+      .text("Назад", `catalogBackPage|...`)  // или "layout|store_home_page", как вам удобнее
+      .row()
+      .text("Заказать", `order|${product.id}`);
+
+    // Можно отправить несколько фото (если images.length>1) через replyWithMediaGroup,
+    // но в простом случае — одно "главное" фото:
+    const mainPhotoUrl = (Array.isArray(images) && images.length > 0)
+      ? images[0].url
+      : 'https://kvartiry-tbilisi.ru/images/demo/product_banner.png';
+
+    const msg = await ctx.replyWithPhoto(mainPhotoUrl, {
+      caption: detailsText,
+      parse_mode: 'HTML',
+      reply_markup: keyboard,
+    });
+    storeMessageId(ctx, msg.message_id);
+
+    log('info', `renderProductDetails: Товар ID ${product.id} (детальная карточка) отправлен.`, payload);
+    return msg.message_id;
+  } catch (error: any) {
+    log('error', `renderProductDetails: Ошибка при выводе детальной карточки: ${error.message}`, payload);
+    const errMsg = await ctx.reply("Произошла ошибка при загрузке детальной информации о товаре.");
+    storeMessageId(ctx, errMsg.message_id);
+    return null;
+  }
+}
+// Path: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/renderCategoryNav.ts
+// Version: 1.2.0-add-store-button
+// [CHANGELOG]
+// - Добавляем кнопку "🛒 Store" между Back и Next.
+// - Если последняя страница (page == totalPages), вместо Next выводим Home (layout|home_page).
+
+import type { Payload } from 'payload';
+import { InlineKeyboard } from 'grammy';
+import { storeMessageId } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+import { paginateCategoryItems } from './paginateCategoryItems';
+import { renderProductCard } from './renderProductCard';
+import type { BotContext } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
+
+async function clearPageMessages(ctx: BotContext): Promise<void> {
+  if (!ctx.session.categoryPageMessages || !ctx.session.categoryPageMessages.length) return;
+  if (!ctx.chat?.id) return;
+
+  for (const msgId of ctx.session.categoryPageMessages) {
+    try {
+      await ctx.api.deleteMessage(ctx.chat.id, msgId);
+    } catch (err) {
+      // игнорируем
+    }
+  }
+  ctx.session.categoryPageMessages = [];
+}
+
+export async function renderCategoryNav(
+  ctx: BotContext,
+  payload: Payload,
+  rawCategoryId: string,
+  page: number,
+  itemsPerPage: number,
+  direction: 'next' | 'back'
+): Promise<void> {
+  try {
+    // Удаляем товары/панель предыдущей страницы
+    await clearPageMessages(ctx);
+
+    const categoryId = parseInt(rawCategoryId, 10);
+    const pagination = await paginateCategoryItems(
+      payload,
+      'products',
+      { category_ids: { in: [categoryId] } },
+      page,
+      itemsPerPage
+    );
+    const products = pagination.docs;
+    const totalPages = pagination.totalPages;
+
+    if (!products || products.length === 0) {
+      const noMoreMsg = await ctx.reply("Нет больше товаров.");
+      storeMessageId(ctx, noMoreMsg.message_id);
+      return;
+    }
+
+    if (!ctx.session.categoryPageMessages) {
+      ctx.session.categoryPageMessages = [];
+    }
+
+    // Рендерим товары
+    for (const product of products) {
+      const productMsgId = await renderProductCard(ctx, product.id, payload);
+      if (productMsgId) {
+        ctx.session.categoryPageMessages.push(productMsgId);
+      }
+    }
+
+    // Кнопки
+    const navKeyboard = new InlineKeyboard();
+
+    // 1) Back
+    //   - Если page=1 => обычно Back => layout|store_home_page (или старая логика, зависит от вашего кода)
+    //   - Иначе => catalogBackPage|...
+    if (page === 1) {
+      navKeyboard.text("Back", "layout|store_home_page");
+    } else {
+      navKeyboard.text("Back", `catalogBackPage|${categoryId}|${page - 1}|${itemsPerPage}`);
+    }
+
+    // 2) 🛒 Store (между Back и Next/Home)
+    navKeyboard.text("🛒 Store", "layout|store_home_page");
+
+    // 3) Next / Home
+    if (page < totalPages) {
+      navKeyboard.text("Next", `catalogLoadMore|${categoryId}|${page + 1}|${itemsPerPage}`);
+    } else {
+      // Последняя страница => Home
+      navKeyboard.text("Home", "layout|home_page");
+    }
+
+    const navMsg = await ctx.reply(`Страница: ${page} из ${totalPages}`, {
+      parse_mode: 'HTML',
+      reply_markup: navKeyboard,
+    });
+    storeMessageId(ctx, navMsg.message_id);
+    ctx.session.categoryPageMessages.push(navMsg.message_id);
+
+    log('info', `renderCategoryNav: page=${page}, direction=${direction}, catId=${categoryId}`, payload);
+  } catch (error: any) {
+    log('error', `Ошибка renderCategoryNav: ${error.message}`, payload);
+    const errMsg = await ctx.reply("Ошибка при подгрузке товаров.");
+    storeMessageId(ctx, errMsg.message_id);
+  }
+}
+// 📌 Путь: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/index.TelegramAPI.ts
+// 📌 Версия: 1.2.0
+//
+// [CHANGELOG]
+// - Убрана попытка загружать подкатегории и товары на главной странице `CatalogBlock`.
+// - Добавлено описание вывода только первого уровня категорий.
+// - Добавлена обработка отсутствия категорий.
+
+import type { Payload } from 'payload';
+import { InlineKeyboard } from 'grammy';
+import type { BotContext } from '@/plugins/TelegramAPI/utils/BotUtils/initializeBots';
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+
+/**
+ * Отображение `CatalogBlock`.
+ * @param {BotContext} ctx - Контекст Telegram бота.
+ * @param {any} block - Блок каталога.
+ * @param {Payload} payload - Экземпляр Payload CMS.
+ */
+export async function renderCatalogBlock(ctx: BotContext, block: any, payload: Payload): Promise<void> {
+  try {
+    if (!block || !ctx.chat) {
+      throw new Error('Некорректный блок или контекст чата.');
+    }
+
+    const inlineKeyboard = new InlineKeyboard();
+
+    // Загрузка категорий первого уровня
+    const categoriesResult = await payload.find({
+      collection: 'product-categories',
+      where: { parent_id: { equals: null } }, // Только категории верхнего уровня
+      limit: 999,
+    });
+
+    const categories = categoriesResult.docs;
+
+    // Если категории отсутствуют
+    if (categories.length === 0) {
+      await ctx.reply('Категории отсутствуют.');
+      log('info', 'Категории для отображения отсутствуют.', payload);
+      return;
+    }
+
+    // Генерация кнопок для категорий
+    categories.forEach((category: any, index: number) => {
+      inlineKeyboard.text(category.name, `catalogCategory|${category.id}`);
+      if ((index + 1) % 2 === 0) inlineKeyboard.row(); // Новый ряд каждые 2 кнопки
+    });
+
+    // Отправка сообщения с обложкой и описанием
+    const bannerUrl = block.banner || 'https://kvartiry-tbilisi.ru/images/demo/catalog_banner-1.png';
+    const description = block.description || 'Пожалуйста, выберите категорию:';
+
+    await ctx.replyWithPhoto(bannerUrl, {
+      caption: description,
+      parse_mode: 'HTML',
+      reply_markup: inlineKeyboard,
+    });
+
+    log('info', `Каталог успешно отображён для пользователя ${ctx.from?.id}`, payload);
+  } catch (error: any) {
+    log('error', `Ошибка отображения CatalogBlock: ${error.message}`, payload);
+    await ctx.reply('Произошла ошибка при загрузке каталога.');
+  }
+}
+// Path: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/paginateCategoryItems.ts
+// Version: 1.1.2
+//
+// [CHANGELOG]
+// - Функция теперь возвращает объект с полями docs и totalPages для корректной проверки наличия следующих страниц.
+import type { Payload, CollectionSlug } from 'payload';
+
+export async function paginateCategoryItems(
+  payload: Payload,
+  collection: CollectionSlug,
+  where: Record<string, any>,
+  page: number,
+  itemsPerPage: number,
+): Promise<{ docs: any[]; totalPages: number }> {
+  try {
+    const result = await payload.find({
+      collection,
+      where,
+      limit: itemsPerPage,
+      page,
+      sort: 'name',
+    });
+    return {
+      docs: result.docs || [],
+      totalPages: result.totalPages || Math.ceil((result.totalDocs || 0) / itemsPerPage),
+    };
+  } catch (error: any) {
+    console.error(`Ошибка при пагинации коллекции "${collection}":`, error);
+    throw new Error(`Ошибка при загрузке данных из коллекции "${collection}".`);
+  }
+}
+
+export function generatePaginationData(
+  currentPage: number,
+  totalItems: number,
+  itemsPerPage: number,
+): {
+  currentPage: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
+} {
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
+  return {
+    currentPage,
+    totalPages,
+    hasNextPage: currentPage < totalPages,
+    hasPrevPage: currentPage > 1,
+  };
+}
+// Path: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/renderCatalogBlock.ts
+// Version: 1.4.3-no-manual-protect
+// [CHANGELOG]
+// - Удалено manual protect_content, rely on middleware monkey-patch.
+
+import type { Payload } from 'payload';
+import { InlineKeyboard } from 'grammy';
+import type { BotContext } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
+import { storeMessageId } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+
+export async function renderCatalogBlock(
+  ctx: BotContext,
+  block: any,
+  payload: Payload
+): Promise<void> {
+  try {
+    if (!ctx.chat) {
+      log('error', 'Контекст чата отсутствует.', payload);
+      return;
+    }
+
+    const categoriesResult = await payload.find({
+      collection: 'product-categories',
+      where: { parent_id: { equals: null } },
+      limit: 999,
+    });
+    const categories = categoriesResult.docs;
+    if (categories.length === 0) {
+      const emptyMsg = await ctx.reply('Категории отсутствуют.');
+      storeMessageId(ctx, emptyMsg.message_id);
+      log('info', 'Категории для отображения отсутствуют.', payload);
+      return;
+    }
+
+    const inlineKeyboard = new InlineKeyboard();
+    const itemsPerPage = block?.itemsPerPage ?? 3;
+    categories.forEach((cat: any, idx: number) => {
+      inlineKeyboard.text(cat.name, `catalogCategory|${cat.id}|${itemsPerPage}`);
+      if ((idx + 1) % 2 === 0) inlineKeyboard.row();
+    });
+
+    const bannerUrl = block?.banner || 'https://kvartiry-tbilisi.ru/images/demo/catalog_banner-1.png';
+    const description = block?.description || 'Главная страница каталога. Выберите категорию:';
+
+    const catalogMsg = await ctx.replyWithPhoto(bannerUrl, {
+      caption: description,
+      parse_mode: 'HTML',
+      reply_markup: inlineKeyboard,
+    });
+    storeMessageId(ctx, catalogMsg.message_id);
+
+    log('info', `Главная страница CatalogBlock успешно отображена для пользователя ${ctx.from?.id}`, payload);
+  } catch (error: any) {
+    log('error', `Ошибка отображения CatalogBlock: ${error.message}`, payload);
+    const errMsg = await ctx.reply('Произошла ошибка при загрузке каталога.');
+    storeMessageId(ctx, errMsg.message_id);
+  }
+}
+// Path: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/renderProductSnippet.ts
+// Version: 1.0.0
+// [CHANGELOG]
+// - Отображает короткую карточку (сниппет) товара в одну строку с HTML-разметкой.
+// - Кнопки: «Подробно» (productDetails|id), «Заказать» (order|id).
+
+import type { Payload } from 'payload';
+import { InlineKeyboard } from 'grammy';
+import type { BotContext } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
+import { storeMessageId } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+
+// Демонстрационная картинка, если нет фото
+const DEMO_IMAGE_URL = "https://kvartiry-tbilisi.ru/images/demo/product_banner.png";
+
+export async function renderProductSnippet(
+  ctx: BotContext,
+  productId: string | number,
+  payload: Payload
+): Promise<number | null> {
+  try {
+    // Проверка чата
+    if (!ctx.chat) {
+      log('error', 'renderProductSnippet: Контекст чата отсутствует.', payload);
+      return null;
+    }
+
+    // Загружаем товар
+    const result = await payload.find({
+      collection: 'products',
+      where: { id: { equals: productId } },
+      limit: 1,
+    });
+    const product = result.docs[0];
+    if (!product) {
+      const notFoundMsg = await ctx.reply("Товар не найден.");
+      storeMessageId(ctx, notFoundMsg.message_id);
+      return notFoundMsg.message_id;
+    }
+
+    // Извлекаем поля: name, price, size, status, images...
+    const { name, price, size, status, images } = product as any;
+
+    // Статус — берём alias или label
+    const statusAlias = (status?.alias) ? status.alias : 'N/A';
+
+    // HTML-разметка в одну строку
+    // Пример: <b>Название</b>   <b>100$</b>   <b>Размер 40</b>   <b>Статус: active</b>
+    // Можно добавить неразрывные пробелы (&nbsp;) для отступов
+    const snippetLine =
+      `<b>${name}</b> &nbsp;&nbsp; <b>${price}$</b> &nbsp;&nbsp; <b>${size}</b> &nbsp;&nbsp; <i>${statusAlias}</i>`;
+
+    // Можно взять первую картинку из images, если она есть
+    const photoUrl = (Array.isArray(images) && images.length > 0)
+      ? images[0].url
+      : DEMO_IMAGE_URL;
+
+    // Кнопки
+    const keyboard = new InlineKeyboard()
+      .text("Подробно", `productDetails|${product.id}`)
+      .text("Заказать", `order|${product.id}`);
+
+    // Отправляем сообщение
+    const snippetMsg = await ctx.replyWithPhoto(photoUrl, {
+      caption: snippetLine,
+      parse_mode: 'HTML',
+      reply_markup: keyboard,
+    });
+    storeMessageId(ctx, snippetMsg.message_id);
+
+    log('info', `renderProductSnippet: Товар ID ${product.id} (короткая карточка) отправлен.`, payload);
+    return snippetMsg.message_id;
+  } catch (error: any) {
+    log('error', `renderProductSnippet: Ошибка при выводе сниппета: ${error.message}`, payload);
+    const errMsg = await ctx.reply("Произошла ошибка при загрузке информации о товаре.");
+    storeMessageId(ctx, errMsg.message_id);
+    return null;
+  }
+}
+// Path: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/renderProductCard.ts
+// Version: 1.1.0-short-snippet
+// [CHANGELOG]
+// 1. Выводим короткую информацию о товаре: обложка, name, price, size, status.
+// 2. Добавляем две кнопки: «Подробно» (productDetails|id) и «Заказать» (order|id).
+// 3. Удалили manual protect_content — у вас используется «монки-патч» в setupMiddlewares.ts.
+
+import type { Payload } from 'payload';
+import { InlineKeyboard } from 'grammy';
+import type { BotContext } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
+import { storeMessageId } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+
+// Можно оставить демо-URL или брать реальную картинку из product.images
+const DEMO_IMAGE_URL = "https://kvartiry-tbilisi.ru/images/demo/product_banner.png";
+
+export async function renderProductCard(
+  ctx: BotContext,
+  productId: string | number,
+  payload: Payload
+): Promise<number | null> {
+  try {
+    if (!ctx.chat) {
+      log('error', 'Контекст чата отсутствует.', payload);
+      return null;
+    }
+
+    // Ищем товар по ID
+    const result = await payload.find({
+      collection: 'products',
+      where: { id: { equals: productId } },
+      limit: 1,
+    });
+    const product = result.docs[0];
+    if (!product) {
+      // Если товар не найден
+      const msg = await ctx.reply("Продукт не найден.");
+      storeMessageId(ctx, msg.message_id);
+      return msg.message_id;
+    }
+
+    // Распаковываем нужные поля
+    const { name, price, size, status } = product as any;
+
+    // Определяем статус (может храниться по-разному: status.alias или status.label)
+    // Если у вас статус — это объект c alias, используем alias:
+    const statusAlias = (status?.alias) ? status.alias : 'N/A';
+
+    // Формируем короткое описание
+    let messageText = `<b>${name}</b>\n`;
+    messageText += `<b>Цена:</b> $${price}\n`;
+    messageText += `<b>Размер:</b> ${size}\n`;
+    messageText += `<b>Статус:</b> ${statusAlias}\n`;
+
+    // Формируем кнопки
+    const keyboard = new InlineKeyboard()
+      .text("Подробно", `productDetails|${product.id}`)
+      .text("Заказать", `order|${product.id}`);
+
+    // Отправляем «короткую» карточку товара
+    const cardMsg = await ctx.replyWithPhoto(DEMO_IMAGE_URL, {
+      caption: messageText,
+      parse_mode: 'HTML',
+      reply_markup: keyboard,
+    });
+    storeMessageId(ctx, cardMsg.message_id);
+
+    log('info', `Короткая карточка товара ID ${productId} успешно отправлена.`, payload);
+    return cardMsg.message_id;
+  } catch (error: any) {
+    log('error', `Ошибка при отображении короткой карточки товара: ${error.message}`, payload);
+    const errMsg = await ctx.reply("Произошла ошибка при загрузке информации о товаре.");
+    storeMessageId(ctx, errMsg.message_id);
+    return null;
+  }
+}
+// Path: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/renderCategoryLayout.ts
+// Version: 1.2.0-add-store-button
+// [CHANGELOG]
+// - Добавляем кнопку "🛒 Store" между Back и Next.
+// - Если это последняя страница (page == totalPages), вместо Next выводим Home (layout|home_page).
+
+import type { Payload } from 'payload';
+import { InlineKeyboard } from 'grammy';
+import { storeMessageId } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+import { paginateCategoryItems } from './paginateCategoryItems';
+import { renderProductCard } from './renderProductCard';
+import type { BotContext } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
+
+export async function renderCategoryLayout(
+  ctx: BotContext,
+  payload: Payload,
+  categoryId: number,
+  page: number,
+  itemsPerPage: number,
+): Promise<void> {
+  try {
+    if (!ctx.chat) return;
+
+    if (!ctx.session.categoryLayoutMessages) ctx.session.categoryLayoutMessages = [];
+    if (!ctx.session.categoryPageMessages) ctx.session.categoryPageMessages = [];
+
+    const category = await payload.findByID({
+      collection: 'product-categories',
+      id: categoryId,
+    });
+    if (!category) {
+      const msg = await ctx.reply("Категория не найдена.");
+      storeMessageId(ctx, msg.message_id);
+      return;
+    }
+
+    // Обложка категории
+    const bannerUrl = Array.isArray(category.media) && category.media.length > 0
+      ? category.media[0].url
+      : 'https://kvartiry-tbilisi.ru/images/demo/catalog_banner-1.png';
+
+    const catMsg = await ctx.replyWithPhoto(bannerUrl, {
+      caption: `<b>${category.name}</b>\n${category.description || ''}`,
+      parse_mode: 'HTML',
+    });
+    storeMessageId(ctx, catMsg.message_id);
+    ctx.session.categoryLayoutMessages.push(catMsg.message_id);
+
+    // Подкатегории
+    const subcatsResult = await payload.find({
+      collection: 'product-categories',
+      where: { parent_id: { equals: categoryId } },
+      limit: 999,
+    });
+    const subcats = subcatsResult.docs;
+    if (subcats.length > 0) {
+      const subKeyboard = new InlineKeyboard();
+      subcats.forEach((sc: any, idx: number) => {
+        subKeyboard.text(sc.name, `catalogCategory|${sc.id}|${itemsPerPage}`);
+        if ((idx + 1) % 2 === 0) subKeyboard.row();
+      });
+      const subMsg = await ctx.reply('Подкатегории:', {
+        reply_markup: subKeyboard,
+      });
+      storeMessageId(ctx, subMsg.message_id);
+      ctx.session.categoryLayoutMessages.push(subMsg.message_id);
+    }
+
+    // Товары (первая страница)
+    const pagination = await paginateCategoryItems(
+      payload,
+      'products',
+      { category_ids: { in: [categoryId] } },
+      page,
+      itemsPerPage
+    );
+    const products = pagination.docs;
+    const totalPages = pagination.totalPages;
+
+    if (!products || products.length === 0) {
+      const noDataMsg = await ctx.reply("Нет товаров в категории.");
+      storeMessageId(ctx, noDataMsg.message_id);
+      ctx.session.categoryPageMessages.push(noDataMsg.message_id);
+      return;
+    }
+
+    // Рендер товаров
+    for (const product of products) {
+      const productMsgId = await renderProductCard(ctx, product.id, payload);
+      if (productMsgId) {
+        ctx.session.categoryPageMessages.push(productMsgId);
+      }
+    }
+
+    // Кнопки навигации
+    const navKeyboard = new InlineKeyboard();
+
+    // Back
+    // (у вас может быть логика, что на первой странице Back => layout|store_home_page,
+    //  либо если page>1 => catalogBackPage|...,
+    //  но так как это именно renderCategoryLayout (первая страница),
+    //  обычно Back => layout|store_home_page).
+    navKeyboard.text("Back", "layout|store_home_page");
+
+    // 🛒 Store (между Back и Next)
+    navKeyboard.text("🛒 Store", "layout|store_home_page");
+
+    if (page < totalPages) {
+      // Не последняя страница => Next
+      navKeyboard.text("Next", `catalogLoadMore|${categoryId}|${page + 1}|${itemsPerPage}`);
+    } else {
+      // Последняя страница => Home
+      navKeyboard.text("Home", "layout|home_page");
+    }
+
+    const navMsg = await ctx.reply(`Страница: ${page} из ${totalPages}`, {
+      parse_mode: 'HTML',
+      reply_markup: navKeyboard,
+    });
+    storeMessageId(ctx, navMsg.message_id);
+    ctx.session.categoryPageMessages.push(navMsg.message_id);
+
+    log('info', `renderCategoryLayout: page=${page}, categoryId=${categoryId}`, payload);
+  } catch (err) {
+    log('error', `Ошибка renderCategoryLayout: ${err}`, payload);
+  }
+}
+// Path: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/handlerCatalogBlock.ts
+// Version: 1.4.0-refactored
+// [CHANGELOG]
+// - Переименован из CatalogEventHandlers.ts
+// - Используем switch-case для catalogCategory, catalogLoadMore, catalogBackPage
+// - Удалили manual protect_content (rely on monkey-patch)
+
+import type { Payload } from 'payload';
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+import type { BotContext } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
+import { clearPreviousMessages } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
+import { renderCategoryLayout } from './renderCategoryLayout';
+import { renderCategoryNav } from './renderCategoryNav';
+
+/**
+ * Основной обработчик callback-событий каталога (catalogCategory, catalogLoadMore, catalogBackPage).
+ * @param cbType - например "catalogCategory", "catalogLoadMore", "catalogBackPage".
+ * @param _unused - не используется, оставлен для совместимости.
+ * @param _unused2 - не используется, оставлен для совместимости.
+ * @param ctx - контекст бота.
+ * @param payload - экземпляр Payload.
+ */
+export async function handlerCatalogBlock(
+  cbType: string,
+  _unused: string,
+  _unused2: string | undefined,
+  ctx: BotContext,
+  payload: Payload,
+): Promise<void> {
+  try {
+    if (!ctx.callbackQuery?.data) {
+      throw new Error('Данные callback отсутствуют.');
+    }
+
+    const parts = ctx.callbackQuery.data.split('|');
+    const eventType = parts[0]?.trim() ?? '';
+
+    switch (eventType) {
+      case 'catalogCategory': {
+        // "catalogCategory|<categoryId>|<itemsPerPage>"
+        const rawCategoryId = parts[1]?.trim() ?? '';
+        const rawItemsPerPage = parts[2]?.trim() ?? '3';
+
+        const categoryId = parseInt(rawCategoryId, 10);
+        const itemsPerPage = parseInt(rawItemsPerPage, 10) || 3;
+
+        if (isNaN(categoryId)) {
+          await ctx.reply('Ошибка: некорректный идентификатор категории.');
+          break;
+        }
+
+        // Очищаем предыдущие сообщения, обнуляем массивы
+        await clearPreviousMessages(ctx);
+        ctx.session.categoryLayoutMessages = [];
+        ctx.session.categoryPageMessages = [];
+
+        // Рендерим первую страницу категории
+        await renderCategoryLayout(ctx, payload, categoryId, 1, itemsPerPage);
+        log('info', `Callback "catalogCategory|${categoryId}" -> первая страница категории.`);
+        break;
+      }
+
+      case 'catalogLoadMore':
+      case 'catalogBackPage': {
+        // "catalogLoadMore|<catId>|<page>|<itemsPerPage>"
+        // "catalogBackPage|<catId>|<page>|<itemsPerPage>"
+        const rawCategoryId = parts[1]?.trim() ?? '';
+        const rawPageValue = parts[2]?.trim() ?? '1';
+        const rawItemsPerPage = parts[3]?.trim() ?? '3';
+
+        const categoryId = parseInt(rawCategoryId, 10);
+        const pageValue = parseInt(rawPageValue, 10);
+        const itemsPerPage = parseInt(rawItemsPerPage, 10) || 3;
+
+        if (isNaN(categoryId) || isNaN(pageValue)) {
+          // Некорректные параметры
+          break;
+        }
+
+        const direction = (eventType === 'catalogLoadMore') ? 'next' : 'back';
+        await renderCategoryNav(ctx, payload, String(categoryId), pageValue, itemsPerPage, direction);
+        log('info', `Callback "${eventType}|${rawCategoryId}" -> страница ${pageValue}. direction=${direction}`);
+        break;
+      }
+
+      default: {
+        await ctx.reply(`Неизвестный тип события каталога: ${eventType}`);
+        break;
+      }
+    }
+
+    await ctx.answerCallbackQuery();
+  } catch (error: any) {
+    await ctx.reply('Произошла ошибка при обработке события каталога.');
+    log('error', `handlerCatalogBlock: ${error.message}`, payload);
+  }
+}
+// Path: src/plugins/TelegramAPI/utils/BlockUtils/ButtonBlock/ButtonBlock.ts
+// Version: 1.1.3-refactored
+//
+// [CHANGELOG]
+// - Если поле description в ButtonBlock не заполнено, используется значение по умолчанию "ButtonBlock".
+// - Если ButtonBlock используется отдельно, текст описания выводится как сообщение с кнопками.
+// - Если ButtonBlock является дочерним блоком MessageBlock, утилита MessageBlock игнорирует описание.
+
+import type { BotContext } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
+import { InlineKeyboard } from 'grammy';
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+import { storeMessageId } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
+
+/**
+ * Обработка кнопочного блока.
+ * @param {BotContext} ctx - Контекст Telegram бота.
+ * @param {any} buttonBlock - Объект кнопочного блока.
+ * @param {string} [defaultDescription] - Описание блока кнопок, если поле description не задано в buttonBlock.
+ */
+export async function handleButtonBlock(
+  ctx: BotContext,
+  buttonBlock: any,
+  defaultDescription = 'ButtonBlock'
+): Promise<void> {
+  if (!ctx.chat) {
+    log('error', 'Контекст чата отсутствует.', undefined);
+    return;
+  }
+
+  // Проверка наличия кнопок
+  if (!Array.isArray(buttonBlock.buttons) || buttonBlock.buttons.length === 0) {
+    log('error', 'Кнопочный блок не содержит кнопок.', undefined);
+    const emptyMsg = await ctx.reply('Кнопочный блок пуст. Пожалуйста, настройте кнопки.');
+    storeMessageId(ctx, emptyMsg.message_id);
+    return;
+  }
+
+  // Используем описание из buttonBlock, если оно задано, иначе значение по умолчанию.
+  const description = buttonBlock.description || defaultDescription;
+
+  const inlineKeyboard = new InlineKeyboard();
+
+  // Генерация кнопок
+  buttonBlock.buttons.forEach((btn: any) => {
+    try {
+      const callbackData = btn.callback_data || '';
+      const buttonText = btn.text;
+
+      switch (btn.callbackType) {
+        case 'layout':
+        case 'message':
+        case 'command':
+          inlineKeyboard.text(buttonText, `${btn.callbackType}|${callbackData}`);
+          break;
+        case 'link':
+          inlineKeyboard.url(buttonText, btn.url || '');
+          break;
+        default:
+          inlineKeyboard.text(buttonText, callbackData);
+      }
+
+      if (btn.newRow) {
+        inlineKeyboard.row();
+      }
+    } catch (error: any) {
+      log('error', `Ошибка при генерации кнопки: ${error.message}`, undefined);
+    }
+  });
+
+  // Отправка сообщения с кнопками
+  try {
+    const buttonMsg = await ctx.reply(description, { reply_markup: inlineKeyboard });
+    storeMessageId(ctx, buttonMsg.message_id);
+    log('info', `Кнопки успешно отправлены. Сообщение ID: ${buttonMsg.message_id}`, undefined);
+  } catch (error: any) {
+    log('error', `Ошибка отправки кнопок: ${error.message}`, undefined);
+  }
+}
+// Path: src/plugins/TelegramAPI/utils/BlockUtils/MessageBlock/MessageBlock.ts
+// Version: 1.0.12-refactored
+//
+// This utility processes a MessageBlock by sending its content using HTML formatting via grammY.
+// If a MessageBlock contains a "buttons" field (provided via ButtonBlock), the buttons are attached via an inline keyboard.
+// Added option protect_content if the bot is configured to protect content.
+
+import type { BotContext } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
+import { InlineKeyboard } from 'grammy';
+
+function getTestMediaUrl(url: string): string {
+  console.log(`[DEBUG] Overriding media URL for testing. Original URL: "${url}"`);
+  return "https://kvartiry-tbilisi.ru/images/resize/medium/c77626871d5920df7195a89cc44a2c85.jpg";
+}
+
+function buildInlineKeyboard(buttons: any[]): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  buttons.forEach((btn: any) => {
+    const callbackType = btn.callbackType && btn.callbackType.trim() !== '' ? btn.callbackType : 'layout';
+    const callbackData = btn.callback_data || '';
+    const data = `${callbackType}|${callbackData}`;
+    if (callbackType === 'link' && btn.url) {
+      keyboard.url(btn.text, btn.url);
+    } else {
+      keyboard.text(btn.text, data);
+    }
+    if (btn.newRow) {
+      keyboard.row();
+    }
+  });
+  return keyboard;
+}
+
+export async function processMessageBlock(ctx: BotContext, blockData: any): Promise<void> {
+  if (!ctx.chat) return;
+  const text: string = blockData.text;
+  try {
+    const replyOptions: any = {
+      parse_mode: 'HTML',
+      protect_content: ctx.session.botConfig?.protectContent || false,
+    };
+
+    let buttonsArray: any[] = [];
+    if (Array.isArray(blockData.buttons) && blockData.buttons.length > 0) {
+      if (blockData.buttons[0]?.buttons) {
+        blockData.buttons.forEach((btnBlock: any) => {
+          if (Array.isArray(btnBlock.buttons)) {
+            buttonsArray = buttonsArray.concat(btnBlock.buttons);
+          }
+        });
+      } else {
+        buttonsArray = blockData.buttons;
+      }
+      if (buttonsArray.length > 0) {
+        replyOptions.reply_markup = buildInlineKeyboard(buttonsArray);
+      }
+    }
+
+    let sentMsg;
+    if (blockData.media && typeof blockData.media.url === 'string' && blockData.media.url.trim() !== "") {
+      const mediaUrl = getTestMediaUrl(blockData.media.url);
+      console.log(`[DEBUG] blockData.media:`);
+      console.dir(blockData.media, { depth: null });
+      console.log(`[DEBUG] Sending photo with test URL: "${mediaUrl}" and caption: "${text}"`);
+      sentMsg = await ctx.replyWithPhoto(mediaUrl, {
+        caption: text,
+        ...replyOptions,
+      });
+    } else {
+      sentMsg = await ctx.reply(text, replyOptions);
+    }
+    if (ctx.session && Array.isArray(ctx.session.previousMessages)) {
+      ctx.session.previousMessages.push(sentMsg.message_id);
+      console.log(`[DEBUG] Stored message ID: ${sentMsg.message_id}. Current previousMessages: ${ctx.session.previousMessages}`);
+    }
+  } catch (error: any) {
+    console.error('Error processing MessageBlock:', error);
+  }
+}
+// Path: src/plugins/TelegramAPI/utils/BotUtils/registerBots.ts
+// Version: 1.0.0-refactored
+// Подробные комментарии в коде:
+// - Этот файл отвечает за регистрацию (запуск) всех ботов из коллекции Payload.
+// - Функция registerBots ищет активных ботов в CMS, создает для каждого объект BotConfig и вызывает initBot.
+// - Файл переименован в registerBots для уменьшения путаницы с термином "initialize".
+
+import type { Payload } from 'payload';
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+import { BotConfig } from '@/plugins/TelegramAPI/utils/BotUtils/BotConfig';
+import { initBot } from '@/plugins/TelegramAPI/utils/BotUtils/initBot';
+
+import type {
+  UnifiedBotConfig,
+  UnifiedBotInterface,
+} from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
+
+/**
+ * Функция для создания объекта UnifiedBotConfig на основе данных из CMS.
+ */
+export function createUnifiedBotConfig(rawBotData: any): UnifiedBotConfig {
+  const defaultInterface: UnifiedBotInterface = {
+    blocks: [],
+    defaultStartLayout: 'start',
+    defaultFirstVisitLayout: 'start_first_visit',
+    total_visit: 0,
+  };
+
+  return {
+    id: rawBotData.id,
+    name: rawBotData.name,
+    token: rawBotData.token,
+    description: rawBotData.description,
+    enabled: rawBotData.enabled,
+    protectContent: rawBotData.protectContent,
+    initialization_status: rawBotData.initialization_status,
+    last_initialized: rawBotData.last_initialized,
+    interface: {
+      blocks: Array.isArray(rawBotData.interface?.blocks)
+        ? rawBotData.interface.blocks
+        : defaultInterface.blocks,
+      defaultStartLayout:
+        rawBotData.interface?.defaultStartLayout ?? defaultInterface.defaultStartLayout,
+      defaultFirstVisitLayout:
+        rawBotData.interface?.defaultFirstVisitLayout ?? defaultInterface.defaultFirstVisitLayout,
+      total_visit:
+        typeof rawBotData.interface?.total_visit === 'number'
+          ? rawBotData.interface.total_visit
+          : defaultInterface.total_visit,
+    },
+    allowedCommands: [],
+  };
+}
+
+/**
+ * Функция регистрации (запуска) всех активных ботов.
+ * Ищет активных ботов в CMS и вызывает initBot для каждого.
+ */
+export async function registerBots(payload: Payload): Promise<void> {
+  try {
+    log('info', 'Поиск активных ботов...', payload);
+    const { docs: bots } = await payload.find({
+      collection: 'bots',
+      where: { enabled: { equals: 'enabled' } },
+      limit: 999,
+    });
+    log('info', `Найдено ${bots.length} ботов для регистрации.`, payload);
+    for (const botData of bots) {
+      const unifiedBotData = createUnifiedBotConfig(botData);
+      if (unifiedBotData.enabled !== 'enabled') {
+        log('info', `Бот "${unifiedBotData.name}" отключён, пропускаем.`, payload);
+        continue;
+      }
+      const botConfig = new BotConfig(unifiedBotData);
+      console.log('BotConfig:', JSON.stringify(botConfig, null, 2));
+      await initBot(payload, botConfig);
+    }
+  } catch (error: any) {
+    log('error', `Ошибка при регистрации ботов: ${error.message}`, payload);
+  }
+}
+// Path: src/plugins/TelegramAPI/utils/BotUtils/initBot.ts
+// Version: 1.0.0-refactored
+// Подробные комментарии в коде:
+// - Этот файл содержит функцию initBot, которая инициализирует (запускает) одного бота.
+// - Функция регистрирует middlewares, команды и callback-обработчики, устанавливает описание и запускает бота.
+// - Экспортируется функция initBot для использования в файле регистрации ботов.
+
+import type { Payload } from 'payload';
+import { Bot as TelegramBot } from 'grammy';
+import { setupMiddlewares } from '@/plugins/TelegramAPI/utils/BotUtils/setupMiddlewares';
+import { setupCommands, buildAllowedCommands } from '@/plugins/TelegramAPI/utils/BotUtils/setupCommands';
+import { setupCallbacks } from '@/plugins/TelegramAPI/utils/BotUtils/setupCallbacks';
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+import { BotConfig } from '@/plugins/TelegramAPI/utils/BotUtils/BotConfig';
+
+import type { BotContext } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
+
+/**
+ * Функция инициализации (запуска) одного бота.
+ * Регистрирует middlewares, команды, callback-обработчики, устанавливает описание и запускает бота.
+ */
+export async function initBot(payload: Payload, botConfig: BotConfig): Promise<void> {
+  try {
+    if (!botConfig.token) {
+      log('error', `Пропущен бот "${botConfig.name}": отсутствует токен.`, payload);
+      return;
+    }
+    const bot = new TelegramBot<BotContext>(botConfig.token);
+    // Регистрируем middlewares
+    setupMiddlewares(bot, botConfig, payload);
+
+    // Формируем список допустимых команд
+    botConfig.allowedCommands = buildAllowedCommands(botConfig);
+    // Регистрируем команды и callback-обработчики
+    setupCommands(bot, botConfig, payload);
+    setupCallbacks(bot, botConfig, payload);
+
+    if (botConfig.description) {
+      try {
+        await bot.api.setMyDescription(botConfig.description);
+        log('info', 'Описание бота успешно обновлено.', payload);
+      } catch (error: any) {
+        log('error', `Ошибка при обновлении описания бота: ${error.message}`, payload);
+      }
+    }
+    bot.start();
+    log('info', `🤖 Бот "${botConfig.name}" успешно запущен.`, payload);
+    await payload.update({
+      collection: 'bots',
+      id: botConfig.id,
+      data: {
+        initialization_status: 'Initialized',
+        last_initialized: new Date().toISOString(),
+      },
+    });
+  } catch (error: any) {
+    log('error', `Ошибка при инициализации бота "${botConfig.name}": ${error.message}`, payload);
+    await payload.update({
+      collection: 'bots',
+      id: botConfig.id,
+      data: { initialization_status: 'Error' },
+    });
+  }
+}
+// Path: src/plugins/TelegramAPI/utils/BotUtils/setupCallbacks.ts
+// Version: 1.0.3-refactored
+// [CHANGELOG]
+// - Ранее вызывали handleCatalogEvent(...) из CatalogEventHandlers.ts
+//   теперь вызываем handlerCatalogBlock(...) из handlerCatalogBlock.ts
+// - Остальная логика (layout|..., message|..., command|...) не меняется.
+
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+import { sendLayoutBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/LayoutBlock/LayoutBlock';
+import { processMessageBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/MessageBlock/MessageBlock';
+// [EDIT START] Импортируем новую функцию handlerCatalogBlock
+import { handlerCatalogBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/handlerCatalogBlock';
+import { goBackState } from '@/plugins/TelegramAPI/utils/SystemUtils/goBackState';
+import type { Bot as TelegramBot } from 'grammy';
+import type { Payload } from 'payload';
+import type { BotContext } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
+import type { BotConfig } from '@/plugins/TelegramAPI/utils/BotUtils/BotConfig';
+
+export function setupCallbacks(
+    bot: TelegramBot<BotContext>,
+    botConfig: BotConfig,
+    payload: Payload
+): void {
+  bot.on('callback_query:data', async (ctx) => {
+    if (!ctx.callbackQuery || !ctx.callbackQuery.data) return;
+    try {
+      const data = ctx.callbackQuery.data;
+      const parts = data.split('|');
+      const cbType = parts[0]?.trim() ?? '';
+      const callbackAlias = parts[1]?.trim() ?? '';
+
+      // Если колбэк начинается с "catalog", передаём в handlerCatalogBlock
+      if (cbType.startsWith('catalog')) {
+        // [EDIT] вызываем новую функцию handlerCatalogBlock
+        await handlerCatalogBlock(cbType, callbackAlias, '', ctx, payload);
+        log('info', `Callback "${cbType}|${callbackAlias}" обработан через handlerCatalogBlock.`, payload);
+      }
+      else if (cbType === 'layout' && callbackAlias === 'go_back_state') {
+        await goBackState(ctx, payload, botConfig);
+      }
+      else if (cbType === 'layout' && callbackAlias === 'store_home_page') {
+        await sendLayoutBlock(ctx, botConfig, payload, 'store_home_page');
+      }
+      else {
+        switch (cbType) {
+          case 'layout': {
+            const layoutBlock = botConfig.interface.blocks.find(
+                (block: any) => block.alias === callbackAlias
+            );
+            if (layoutBlock) {
+              ctx.session.previousState = layoutBlock;
+              await sendLayoutBlock(ctx, botConfig, payload, callbackAlias);
+            } else {
+              await ctx.reply(`Ошибка: Лейаут с alias "${callbackAlias}" не найден.`);
+            }
+            break;
+          }
+          case 'message': {
+            await processMessageBlock(ctx, { text: callbackAlias });
+            log('info', `MessageBlock "${callbackAlias}" успешно обработан.`, payload);
+            break;
+          }
+          case 'command': {
+            if (callbackAlias === 'go_back_state') {
+              await goBackState(ctx, payload, botConfig);
+            } else {
+              await ctx.reply(`Неизвестная команда: ${callbackAlias}`);
+            }
+            break;
+          }
+          default: {
+            await ctx.reply(`Неизвестный тип callback: ${cbType}`);
+          }
+        }
+      }
+
+      await ctx.answerCallbackQuery();
+    } catch (error: any) {
+      log('error', `Ошибка обработки callback_query: ${error.message}`, payload);
+    }
+  });
+}
+// Path: src/plugins/TelegramAPI/utils/BotUtils/setupCommands.ts
+// Version: 1.0.4
+// [CHANGELOG]
+// - Удалили manual protect_content из ctx.reply(...).
+// - При /start удаляем предыдущее сообщение /start, а затем либо открываем лейаут, либо шлём fallback без protect_content (ведь теперь оно добавится через "монки-патч").
+
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+import { processClient } from '@/plugins/TelegramAPI/utils/ClientUtils/processClient';
+import { sendLayoutBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/LayoutBlock/LayoutBlock';
+import type { Payload } from 'payload';
+import type { Bot as TelegramBot } from 'grammy';
+import type { BotContext } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
+import type { BotConfig } from '@/plugins/TelegramAPI/utils/BotUtils/BotConfig';
+
+export function buildAllowedCommands(botConfig: BotConfig): string[] {
+  const allowed: string[] = [];
+  allowed.push('start');
+  // Можно добавить /help и т.д.
+  return allowed;
+}
+
+export function setupCommands(
+    bot: TelegramBot<BotContext>,
+    botConfig: BotConfig,
+    payload: Payload
+): void {
+  bot.command('start', async (ctx) => {
+    try {
+      // Удаляем предыдущее сообщение /start
+      if (ctx.session.startMessageId) {
+        try {
+          await ctx.api.deleteMessage(ctx.chat.id, ctx.session.startMessageId);
+        } catch (delError: any) {
+          log('error', `Не удалось удалить предыдущее /start: ${delError.message}`, payload);
+        }
+      }
+      // Запоминаем ID нового /start
+      if (ctx.msg?.message_id) {
+        ctx.session.startMessageId = ctx.msg.message_id;
+      }
+
+      log('info', `Получена команда /start от пользователя ${ctx.from?.id}.`, payload);
+      const telegramId = ctx.from?.id;
+      if (!telegramId) {
+        await ctx.reply('Ошибка: Telegram ID не найден.');
+        return;
+      }
+      const client = await processClient(payload, telegramId, botConfig.id, {
+        first_name: ctx.from?.first_name,
+        last_name: ctx.from?.last_name,
+        username: ctx.from?.username,
+      });
+      ctx.session.isBanned = client.isBanned;
+
+      if (!client.isBanned) {
+        const layoutAlias =
+            client.total_visit === 1
+                ? botConfig.interface.defaultFirstVisitLayout
+                : botConfig.interface.defaultStartLayout;
+
+        if (layoutAlias) {
+          await sendLayoutBlock(ctx, botConfig, payload, layoutAlias);
+        } else {
+          await ctx.reply('Ошибка: Не удалось определить layout alias.');
+        }
+      } else {
+        await ctx.reply('Ваш аккаунт заблокирован.');
+      }
+      ctx.session.botConfig = botConfig;
+    } catch (error: any) {
+      log('error', `Ошибка обработки /start: ${error.message}`, payload);
+      await ctx.reply('Произошла ошибка при обработке /start.');
+    }
+  });
+}
+// Path: src/plugins/TelegramAPI/utils/BotUtils/setupMiddlewares.ts
+// Version: 1.1.0
+// [CHANGELOG]
+// - Добавлен "монки-патч" для ctx.reply и ctx.replyWithPhoto, чтобы автоматически
+//   ставить protect_content = ctx.session.botConfig?.protectContent ?? false.
+// - Удаляем ручное protect_content из всех других файлов.
+
+import { session } from 'grammy';
+import type { BotContext, SessionData } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
+import { bannedClientHook } from '@/plugins/TelegramAPI/utils/ClientUtils/bannedClient';
+import { inputMessageFilter } from '@/plugins/TelegramAPI/utils/SystemUtils/inputMessageFilter';
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+import type { Bot as TelegramBot } from 'grammy';
+import type { Payload } from 'payload';
+
+export function setupMiddlewares(bot: TelegramBot<BotContext>, botConfig: any, payload: Payload): void {
+  // 1) Session
+  bot.use(
+    session<SessionData, BotContext>({
+      initial: () => ({
+        previousMessages: [],
+        stateStack: [],
+        previousState: undefined,
+        currentState: undefined,
+        isBanned: false,
+        botConfig: botConfig,
+        startMessageId: undefined,
+      }),
+    })
+  );
+
+  // 2) Блокируем, если клиент забанен
+  bot.use(bannedClientHook(payload));
+
+  // 3) Фильтруем входящие сообщения (SQL-инъекции, slash-команды и т.д.)
+  bot.use(inputMessageFilter);
+
+  // 4) "Монки-патч" для автоматического protect_content
+  bot.use(async (ctx, next) => {
+    // Сохраняем оригинальные методы
+    const originalReply = ctx.reply.bind(ctx);
+    const originalReplyWithPhoto = ctx.replyWithPhoto.bind(ctx);
+
+    // Переопределяем ctx.reply
+    ctx.reply = async function (text, options = {}) {
+      if (typeof options.protect_content === 'undefined') {
+        options.protect_content = ctx.session.botConfig?.protectContent ?? false;
+      }
+      return originalReply(text, options);
+    };
+
+    // Переопределяем ctx.replyWithPhoto
+    ctx.replyWithPhoto = async function (photo, options = {}) {
+      if (typeof options.protect_content === 'undefined') {
+        options.protect_content = ctx.session.botConfig?.protectContent ?? false;
+      }
+      return originalReplyWithPhoto(photo, options);
+    };
+
+    // Если нужно, аналогично переопределяем ctx.replyWithDocument, ctx.replyWithAudio и т.д.
+
+    await next();
+  });
+
+  log('info', 'Middlewares успешно зарегистрированы.', payload);
+}
+// Path: src/plugins/TelegramAPI/utils/BotUtils/BotConfig.ts
+// Version: 1.4.9-extended
+//
+// Рефакторинг: добавлено новое поле allowedCommands (опциональное),
+// а также учтено существование поля protectContent в UnifiedBotConfig
+// (для избежания ошибки TS2339). Остальной код сохранён из 1.4.7-refactored.
+
+import type { UnifiedBotConfig, UnifiedBotInterface } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
+
+// Значения по умолчанию для интерфейса бота
+const defaultInterface: UnifiedBotInterface = {
+  blocks: [],
+  defaultStartLayout: 'start',
+  defaultFirstVisitLayout: 'start_first_visit',
+  total_visit: 0,
+};
+
+/**
+ * Класс BotConfig инкапсулирует все настройки бота (полученные из UnifiedBotConfig),
+ * включая интерфейс и дополнительные поля (protectContent, allowedCommands, и т.д.).
+ */
+export class BotConfig {
+  public id: number;
+  public name: string;
+  public token: string;
+  public description?: string;
+  public enabled: string;
+  public initialization_status: string;
+  public last_initialized?: string;
+  public interface: UnifiedBotInterface;
+  public protectContent: boolean;
+
+  // [CHANGE] Добавлено новое поле для списка допустимых команд
+  public allowedCommands?: string[];
+
+  constructor(data: UnifiedBotConfig) {
+    this.id = data.id;
+    this.name = data.name;
+    this.token = data.token;
+    this.description = data.description;
+    this.enabled = data.enabled;
+    this.initialization_status = data.initialization_status;
+    this.last_initialized = data.last_initialized;
+
+    // Инициализация интерфейса бота
+    this.interface = {
+      blocks: data.interface?.blocks ?? defaultInterface.blocks,
+      defaultStartLayout: data.interface?.defaultStartLayout ?? defaultInterface.defaultStartLayout,
+      defaultFirstVisitLayout: data.interface?.defaultFirstVisitLayout ?? defaultInterface.defaultFirstVisitLayout,
+      total_visit:
+        typeof data.interface?.total_visit === 'number'
+          ? data.interface?.total_visit
+          : defaultInterface.total_visit,
+    };
+
+    // Если поле protectContent есть в data, используем, иначе false
+    this.protectContent = data.protectContent ?? false;
+
+    // Если поле allowedCommands уже есть в data, берём его. Иначе — пустой массив
+    this.allowedCommands = data.allowedCommands ?? [];
+  }
+
+  get telegramApiToken(): string {
+    return this.token;
+  }
+}
+// Path: src/plugins/TelegramAPI/utils/SystemUtils/goBackState.ts
+// Version: 1.0.4-goBack_stack
+// Рефакторинг: Используем stateStack и currentState для корректного возврата к предыдущему состоянию.
+
+import type { Payload } from 'payload';
+import type { BotContext } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+import { sendLayoutBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/LayoutBlock/LayoutBlock';
+import { clearPreviousMessages } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
+
+export async function goBackState(ctx: BotContext, payload: Payload, botConfig: any): Promise<void> {
+  try {
+    // Очищаем все предыдущие сообщения
+    await clearPreviousMessages(ctx);
+
+    // Извлекаем предыдущее состояние из стека, если оно есть
+    let previousState = null;
+    if (ctx.session.stateStack && ctx.session.stateStack.length > 0) {
+      previousState = ctx.session.stateStack.pop();
+    } else if (ctx.session.currentState) {
+      // Если стек пуст, можно использовать текущее состояние как fallback
+      previousState = ctx.session.currentState;
+    }
+
+    if (!previousState || !previousState.alias) {
+      await ctx.reply('Предыдущее состояние не найдено.');
+      return;
+    }
+
+    // Обновляем текущее состояние
+    ctx.session.currentState = previousState;
+
+    // Восстанавливаем layout по alias предыдущего состояния
+    await sendLayoutBlock(ctx, botConfig, payload, previousState.alias);
+    log('info', 'Команда go_back_state выполнена успешно. Пользователь возвращён к предыдущему состоянию.', payload);
+  } catch (error: any) {
+    log('error', `Ошибка выполнения команды go_back_state: ${error.message}`, payload);
+    await ctx.reply('Ошибка при возврате в предыдущее состояние.');
+  }
+}
+// Path: src/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages.ts
+// Version: 1.3.6-refactored
+// Рефакторинг: Импорты типов SessionData и BotContext заменены на общий файл TelegramBlocksTypes.ts.
+
+import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+import type { BotContext } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
+
+export async function clearPreviousMessages(ctx: BotContext): Promise<void> {
+  if (!ctx.chat || !ctx.session || !Array.isArray(ctx.session.previousMessages)) {
+    log('debug', 'Контекст чата или данные сессии недоступны.');
+    return;
+  }
+  const chatId = ctx.chat.id;
+  const messageIds = ctx.session.previousMessages;
+  try {
+    for (const msgId of messageIds) {
+      try {
+        await ctx.api.editMessageReplyMarkup(chatId, msgId, { reply_markup: undefined });
+      } catch (error: any) {}
+      try {
+        await ctx.api.deleteMessage(chatId, msgId);
+      } catch (error: any) {}
+    }
+  } catch (err: any) {
+    // Обработка ошибки
+  } finally {
+    ctx.session.previousMessages = [];
+  }
+}
+
+export function storeMessageId(ctx: BotContext, messageId: number): void {
+  if (!messageId) return;
+  if (ctx.session && Array.isArray(ctx.session.previousMessages)) {
+    ctx.session.previousMessages.push(messageId);
+  }
+}
+// 📌 Путь: src/plugins/TelegramAPI/utils/SystemUtils/Logger.ts
+// 📌 Версия: 1.1.0
+//
+// [CHANGELOG]
+// - Восстановлен импорт `Payload` для устранения ошибки компиляции.
+// - Актуализированы комментарии и добавлена проверка на корректность экземпляра `Payload`.
+// - Улучшена обработка ошибок в блоке Payload CMS логирования.
+
+import type { Payload } from 'payload';
+
+/**
+ * Функция логирования.
+ * @param {string} level - Уровень логирования ('info', 'debug', 'error').
+ * @param {string} message - Сообщение для логирования.
+ * @param {Payload} [payload] - Экземпляр Payload CMS для записи лога.
+ * @param {Record<string, any>} [context] - Дополнительные данные для логирования (например, объект контекста).
+ */
+export function log(
+  level: 'info' | 'debug' | 'error',
+  message: string,
+  payload?: Payload,
+  context?: Record<string, any>
+): void {
+  const timestamp = new Date().toISOString();
+  const logMessage = `[${timestamp}] [${level.toUpperCase()}] ${message}`;
+
+  // Вывод в консоль
+  if (context && Object.keys(context).length > 0) {
+    console.log(logMessage, context);
+  } else {
+    console.log(logMessage);
+  }
+
+  // Вывод через Payload CMS, если доступно
+  if (payload?.logger && typeof payload.logger[level] === 'function') {
+    try {
+      payload.logger[level](message, context || {});
+    } catch (err: any) {
+      console.error(
+        `[${timestamp}] [ERROR] Ошибка логирования через Payload CMS: ${err.message || 'Неизвестная ошибка'}`
+      );
+    }
+  }
+}
+// Path: src/plugins/TelegramAPI/utils/SystemUtils/inputMessageFilter.ts
+// Version: 1.0.8
+// [CHANGELOG]
+// - Не трогаем protect_content, так как теперь оно добавляется в setupMiddlewares.ts "монки-патч".
+// - Сохраняем проверку SQL-инъекций, slash-команд, и пропуск callback_query.
+
+import { MiddlewareFn } from 'grammy';
+import type { BotContext } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
+
+// Паттерны для защиты
+const sqlInjectionPattern = /(\b(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|EXEC|UNION|--|WHERE|HAVING|GROUP\s+BY|ORDER\s+BY|EXECUTE|INTO|LIKE|REPLACE|TRUNCATE|SHOW|DESCRIBE)\b)/i;
+const dangerousCharsPattern = /[`$;"'\\]/g;
+const scriptTagPattern = /<script\b[^>]*>(.*?)<\/script>/gi;
+const evalPattern = /\beval\s*\(.*\)/gi;
+
+const maxCommandLength = 100;
+
+export const inputMessageFilter: MiddlewareFn<BotContext> = async (ctx, next) => {
+  // Пропускаем callback_query без проверки slash-команд
+  if (ctx.callbackQuery) {
+    return next();
+  }
+
+  const text = ctx.message?.text;
+  if (typeof text === 'string') {
+    // Проверка на опасные паттерны
+    if (
+      text.length > 1000 ||
+      sqlInjectionPattern.test(text) ||
+      dangerousCharsPattern.test(text) ||
+      scriptTagPattern.test(text) ||
+      evalPattern.test(text)
+    ) {
+      await blockMessage(ctx, 'Сообщение содержит потенциально опасные конструкции. Удаляем...');
+      return;
+    }
+
+    // Проверка slash-команды
+    if (text.startsWith('/')) {
+      const trimmed = text.trim();
+      if (trimmed.length > maxCommandLength) {
+        await blockMessage(ctx, 'Команда слишком длинная и будет отклонена.');
+        return;
+      }
+      const cmdWithoutSlash = trimmed.slice(1).split(' ')[0] || '';
+      const allowedCommands = ctx.session.botConfig?.allowedCommands || [];
+
+      if (!allowedCommands.includes(cmdWithoutSlash)) {
+        await blockMessage(ctx, 'Неизвестная команда. Сообщение удалено.');
+        return;
+      }
+      // Допустимая команда
+      return next();
+    }
+
+    // Не callback, не slash-команда => удаляем
+    await blockMessage(ctx, 'Обычные сообщения не поддерживаются, используйте кнопки.');
+    return;
+  }
+
+  // Если вообще нет текста (например, фото без подписи) => удаляем
+  if (ctx.message) {
+    await blockMessage(ctx, 'Только текстовые сообщения / или inline-кнопки.');
+  }
+};
+
+async function blockMessage(ctx: BotContext, notifyText: string) {
+  try {
+    const replyMsg = await ctx.reply(notifyText);
+    if (ctx.chat && ctx.msg) {
+      await ctx.api.deleteMessage(ctx.chat.id, ctx.msg.message_id);
+    }
+  } catch (err) {
+    // игнорируем
+  }
+}
+// Path: src/plugins/TelegramAPI/types/TelegramBlocksTypes.ts
+// Version: 2.1.0
+// [CHANGELOG]
+// - Добавлены поля categoryLayoutMessages и categoryPageMessages в SessionData,
+//   чтобы раздельно хранить обложку/подкатегории и товары/панель навигации.
+
+import type { Context, SessionFlavor } from 'grammy';
+import type { BotConfig } from '@/plugins/TelegramAPI/utils/BotUtils/BotConfig';
+
+export enum BlockType {
+  Layout = 'layout-blocks',
+  Catalog = 'catalog-blocks',
+  Message = 'message-blocks',
+  Button = 'button-blocks',
+  Command = 'command-blocks',
+}
+
+export interface TelegramLayoutBlock {
+  blockType: BlockType.Layout;
+  name: string;
+  alias: string;
+  blocks: TelegramSubBlock[];
+  clearPreviousMessages?: boolean;
+}
+
+export interface TelegramCatalogBlock {
+  blockType: BlockType.Catalog;
+  name: string;
+  alias: string;
+  itemsPerPage?: number;
+}
+
+export interface TelegramMessageBlock {
+  blockType: BlockType.Message;
+  text: string;
+}
+
+export interface TelegramButtonBlock {
+  blockType: BlockType.Button;
+  text: string;
+  callbackType: 'link' | 'message' | 'layout' | 'command';
+}
+
+export interface TelegramCommandBlock {
+  blockType: BlockType.Command;
+  command: string;
+  responseText: string;
+}
+
+export type TelegramSubBlock =
+  | TelegramLayoutBlock
+  | TelegramCatalogBlock
+  | TelegramMessageBlock
+  | TelegramButtonBlock
+  | TelegramCommandBlock;
+
+export interface FromData {
+  first_name?: string;
+  last_name?: string;
+  username?: string;
+}
+
+export interface RenderOptions {
+  page: number;
+  itemsPerPage: number;
+  displayMode: 'subcategories' | 'products' | 'all';
+}
+
+export interface UnifiedBotInterface {
+  blocks: TelegramSubBlock[];
+  defaultStartLayout: string;
+  defaultFirstVisitLayout: string;
+  total_visit: number;
+}
+
+export interface UnifiedBotConfig {
+  id: number;
+  name: string;
+  token: string;
+  description?: string;
+  enabled: string;
+  initialization_status: string;
+  last_initialized?: string;
+  interface?: Partial<UnifiedBotInterface>;
+  allowedCommands?: string[];
+  protectContent?: boolean;
+}
+
+export interface SessionData {
+  previousMessages: number[];
+  stateStack: any[];
+  previousState?: any;
+  currentState?: TelegramLayoutBlock;
+  isBanned: boolean;
+  botConfig?: BotConfig;
+  startMessageId?: number;
+
+  // [EDIT START] Новые поля
+  categoryLayoutMessages?: number[];  // обложка и подкатегории
+  categoryPageMessages?: number[];    // товары и панель навигации
+  // [EDIT END]
+}
+
+export type BotContext = Context & SessionFlavor<SessionData>;

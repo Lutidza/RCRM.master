@@ -1,14 +1,12 @@
 // Path: src/plugins/TelegramAPI/utils/BotUtils/setupCallbacks.ts
-// Version: 1.0.3-refactored
+// Version: 1.0.4-productDetails
 // [CHANGELOG]
-// - Ранее вызывали handleCatalogEvent(...) из CatalogEventHandlers.ts
-//   теперь вызываем handlerCatalogBlock(...) из handlerCatalogBlock.ts
-// - Остальная логика (layout|..., message|..., command|...) не меняется.
+// - Если cbType.startsWith('catalog') => handlerCatalogBlock(...).
+// - Если cbType === 'productDetails' или 'order' => тоже handlerCatalogBlock(...).
 
 import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
 import { sendLayoutBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/LayoutBlock/LayoutBlock';
 import { processMessageBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/MessageBlock/MessageBlock';
-// [EDIT START] Импортируем новую функцию handlerCatalogBlock
 import { handlerCatalogBlock } from '@/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/handlerCatalogBlock';
 import { goBackState } from '@/plugins/TelegramAPI/utils/SystemUtils/goBackState';
 import type { Bot as TelegramBot } from 'grammy';
@@ -22,28 +20,27 @@ export function setupCallbacks(
     payload: Payload
 ): void {
   bot.on('callback_query:data', async (ctx) => {
-    if (!ctx.callbackQuery || !ctx.callbackQuery.data) return;
+    if (!ctx.callbackQuery?.data) return;
     try {
       const data = ctx.callbackQuery.data;
       const parts = data.split('|');
       const cbType = parts[0]?.trim() ?? '';
-      const callbackAlias = parts[1]?.trim() ?? '';
 
-      // Если колбэк начинается с "catalog", передаём в handlerCatalogBlock
-      if (cbType.startsWith('catalog')) {
-        // [EDIT] вызываем новую функцию handlerCatalogBlock
-        await handlerCatalogBlock(cbType, callbackAlias, '', ctx, payload);
-        log('info', `Callback "${cbType}|${callbackAlias}" обработан через handlerCatalogBlock.`, payload);
+      // Если колбэк "catalog..." или "productDetails" / "order", передаём в handlerCatalogBlock
+      if (cbType.startsWith('catalog') || cbType === 'productDetails' || cbType === 'order') {
+        await handlerCatalogBlock(cbType, parts[1] ?? '', parts[2], ctx, payload);
+        log('info', `Callback "${cbType}" обработан через handlerCatalogBlock.`, payload);
       }
-      else if (cbType === 'layout' && callbackAlias === 'go_back_state') {
+      else if (cbType === 'layout' && parts[1] === 'go_back_state') {
         await goBackState(ctx, payload, botConfig);
       }
-      else if (cbType === 'layout' && callbackAlias === 'store_home_page') {
+      else if (cbType === 'layout' && parts[1] === 'store_home_page') {
         await sendLayoutBlock(ctx, botConfig, payload, 'store_home_page');
       }
       else {
         switch (cbType) {
           case 'layout': {
+            const callbackAlias = parts[1] ?? '';
             const layoutBlock = botConfig.interface.blocks.find(
                 (block: any) => block.alias === callbackAlias
             );
@@ -51,16 +48,18 @@ export function setupCallbacks(
               ctx.session.previousState = layoutBlock;
               await sendLayoutBlock(ctx, botConfig, payload, callbackAlias);
             } else {
-              await ctx.reply(`Ошибка: Лейаут с alias "${callbackAlias}" не найден.`);
+              await ctx.reply(`Ошибка: Лейаут "${callbackAlias}" не найден.`);
             }
             break;
           }
           case 'message': {
+            const callbackAlias = parts[1] ?? '';
             await processMessageBlock(ctx, { text: callbackAlias });
             log('info', `MessageBlock "${callbackAlias}" успешно обработан.`, payload);
             break;
           }
           case 'command': {
+            const callbackAlias = parts[1] ?? '';
             if (callbackAlias === 'go_back_state') {
               await goBackState(ctx, payload, botConfig);
             } else {

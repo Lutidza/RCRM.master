@@ -1,9 +1,10 @@
-// Path: src/fields/TelegramAPI/getStatusField/index.TelegramAPI.ts
-// Version: 1.6.1
+// Path: src/fields/TelegramAPI/getStatusField/index.ts
+// Version: 1.6.2-with-logs
 //
-// The status field configuration for the "clients" collection.
-// This field links to the "statuses" collection and filters available statuses based on active status groups.
-// The default status is now assigned in processClient.ts (for Telegram API) and in the admin panel via defaultValue.
+// Добавляем console.log для диагностики:
+// - в getLinkedStatusGroups
+// - в filterOptions
+// - в defaultValue
 
 import type { Field } from 'payload';
 
@@ -16,6 +17,8 @@ const getLinkedStatusGroups = async (req: any, collectionSlug: string) => {
     where: { linkedCollections: { contains: collectionSlug } },
     depth: 0,
   });
+
+  console.log(`[DEBUG getLinkedStatusGroups] collectionSlug="${collectionSlug}", found groups:`, docs.map((g: any) => g.id));
 
   return docs.map((group: any) => group.id);
 };
@@ -38,7 +41,10 @@ const getDefaultStatus = async (req: any, collectionSlug: string) => {
     depth: 0,
   });
 
-  return docs[0]?.id || null;
+  const defaultStatusId = docs[0]?.id || null;
+  console.log(`[DEBUG getDefaultStatus] collectionSlug="${collectionSlug}", defaultStatusId=`, defaultStatusId);
+
+  return defaultStatusId;
 };
 
 export const getStatusField = (collectionSlug: string): Field => ({
@@ -53,7 +59,21 @@ export const getStatusField = (collectionSlug: string): Field => ({
   },
   filterOptions: async ({ req }) => {
     const groupIds = await getLinkedStatusGroups(req, collectionSlug);
-    return groupIds.length ? { statusGroup: { in: groupIds }, enabled: { equals: 'enabled' } } : false;
+    console.log(`[DEBUG getStatusField: filterOptions] collectionSlug="${collectionSlug}", groupIds=`, groupIds);
+
+    if (!groupIds.length) {
+      console.log(`[DEBUG getStatusField: filterOptions] groupIds is empty => returning false => no statuses will be shown for collection="${collectionSlug}".`);
+      return false;
+    }
+
+    // Показывать статусы, у которых statusGroup в groupIds и enabled = 'enabled'
+    const where = { statusGroup: { in: groupIds }, enabled: { equals: 'enabled' } };
+    console.log(`[DEBUG getStatusField: filterOptions] final where=`, JSON.stringify(where, null, 2));
+    return where;
   },
-  defaultValue: async ({ req }) => await getDefaultStatus(req, collectionSlug) ?? undefined,
+  defaultValue: async ({ req }) => {
+    const defaultStatus = await getDefaultStatus(req, collectionSlug);
+    console.log(`[DEBUG getStatusField: defaultValue] collectionSlug="${collectionSlug}", defaultStatusID=`, defaultStatus);
+    return defaultStatus ?? undefined;
+  },
 });

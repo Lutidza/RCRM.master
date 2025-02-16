@@ -142,6 +142,13 @@ export const Products: CollectionConfig = {
         return doc;
       },
 
+      // [EDIT START] наш новый хук
+      async ({ doc }) => {
+        console.log('[DEBUG beforeRead:product.status]', JSON.stringify(doc.status, null, 2));
+        return doc;
+      },
+      // [EDIT END]
+
       async ({doc}) => {
        console.log(doc.images)
       }
