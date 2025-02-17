@@ -40,7 +40,7 @@ export async function renderCatalogBlock(
       if ((idx + 1) % 2 === 0) inlineKeyboard.row();
     });
 
-    const bannerUrl = block?.banner || 'https://kvartiry-tbilisi.ru/images/demo/catalog_banner-1.png';
+    const bannerUrl = block?.banner || 'https://kvartiry-tbilisi.ru/images/demo/home.jpg';
     const description = block?.description || 'Главная страница каталога. Выберите категорию:';
 
     const catalogMsg = await ctx.replyWithPhoto(bannerUrl, {

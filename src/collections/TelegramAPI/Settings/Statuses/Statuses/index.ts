@@ -7,13 +7,7 @@ const Statuses: CollectionConfig = {
     useAsTitle: 'label',
     group: 'SETTINGS',
   },
-  defaultPopulate: {
-    statusGroup: {
-      id: true,
-      linkedCollections: true, // select linkedCollections field from the group
-      name: true,
-    },
-  },
+
   fields: [
     // Unique alias for the status
     {
@@ -74,7 +68,7 @@ const Statuses: CollectionConfig = {
       async ({ data, originalDoc, req }) => {
         if (!data || !data.statusGroup) return data;
 
-        // Validate alias uniqueness within the group
+        //Validate alias uniqueness within the group
         if (data.alias) {
           const existingAlias = await req.payload.find({
             collection: 'statuses',
@@ -89,7 +83,7 @@ const Statuses: CollectionConfig = {
           }
         }
 
-        // Validate label uniqueness within the group
+        //Validate label uniqueness within the group
         if (data.label) {
           const existingLabel = await req.payload.find({
             collection: 'statuses',
@@ -104,8 +98,8 @@ const Statuses: CollectionConfig = {
           }
         }
 
-        // Instead of throwing an error if setAsDefault is true and another default exists,
-        // unset the default flag on any other status in the same group.
+        //Instead of throwing an error if setAsDefault is true and another default exists,
+        //unset the default flag on any other status in the same group.
         if (data.setAsDefault) {
           const existingDefaults = await req.payload.find({
             collection: 'statuses',

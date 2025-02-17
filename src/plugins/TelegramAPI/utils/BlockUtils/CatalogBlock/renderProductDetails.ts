@@ -1,25 +1,33 @@
 // Path: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/renderProductDetails.ts
-// Version: 1.0.0
+// Version: 1.1.0-clearAll
+//
 // [CHANGELOG]
-// - Отображает детальную карточку (полное описание, галерея фото, и т. д.)
-// - Кнопки: «В корзину», «Назад», «Заказать» (примерно)
+// - Перед выводом детальной карточки вызываем clearPreviousMessages(ctx),
+//   чтобы удалить все предыдущие сообщения.
+// - Далее формируем "подробную" карточку товара (с более расширенной информацией).
+// - Можно использовать ту же логику проверки фото, статуса, лейблов и т.д.
 
 import type { Payload } from 'payload';
 import { InlineKeyboard } from 'grammy';
 import type { BotContext } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
-import { storeMessageId } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
+import { clearPreviousMessages, storeMessageId } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
 import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
+
+const DEMO_IMAGE_URL = "https://kvartiry-tbilisi.ru/images/demo/product_banner.png";
 
 export async function renderProductDetails(
   ctx: BotContext,
   productId: string | number,
   payload: Payload
-): Promise<number | null> {
+): Promise<void> {
   try {
     if (!ctx.chat) {
-      log('error', 'renderProductDetails: Контекст чата отсутствует.', payload);
-      return null;
+      log('error', 'renderProductDetails: нет ctx.chat', payload);
+      return;
     }
+
+    // Удаляем все предыдущие сообщения
+    await clearPreviousMessages(ctx);
 
     // Загружаем товар
     const result = await payload.find({
@@ -31,42 +39,57 @@ export async function renderProductDetails(
     if (!product) {
       const notFoundMsg = await ctx.reply("Товар не найден.");
       storeMessageId(ctx, notFoundMsg.message_id);
-      return notFoundMsg.message_id;
+      return;
     }
 
-    const { name, price, size, status, images, description } = product as any;
-    const statusAlias = (status?.alias) ? status.alias : 'N/A';
+    // Извлекаем поля
+    const { name, price, size, status, images, description, labels_ids } = product as any;
+    const statusText = status?.label ?? status?.alias ?? 'N/A';
 
-    let detailsText = `<b>${name}</b>\n`;
-    detailsText += `<b>Цена:</b> ${price}$\n`;
-    detailsText += `<b>Размер:</b> ${size}\n`;
-    detailsText += `<b>Статус:</b> ${statusAlias}\n\n`;
-    detailsText += `<b>Описание:</b>\n${description || 'Нет описания'}\n\n`;
-    detailsText += `Выберите действие:`;
+    // Лейблы
+    let labelsText = '';
+    if (Array.isArray(labels_ids) && labels_ids.length > 0) {
+      labelsText = labels_ids.map((lbl: any) => lbl.label ?? lbl.alias).join(' ');
+    }
 
+    // Формируем HTML для детальной карточки
+    // Пример:
+    // <b>Juicy Pear — ①</b>   🔥HIT
+    // <i>Price:</i> $33
+    // <b>Status:</b> ✅ In stock
+    // <b>Description:</b> ...
+    // ...
+    let detailsText = `<b>${name} — ${size}</b>`;
+    if (labelsText) detailsText += `   ${labelsText}`;
+    detailsText += `\n<i>Price:</i> $${price}\n`;
+    detailsText += `<b>Status:</b> ${statusText}\n`;
+    if (description) {
+      detailsText += `<b>Description:</b>\n${description}\n`;
+    }
+
+    const photoUrl = (Array.isArray(images) && images[0]?.url?.startsWith('http'))
+      ? images[0].url
+      : DEMO_IMAGE_URL;
+
+    // Кнопки. Например: "В корзину", "Back", "Заказать"
     const keyboard = new InlineKeyboard()
       .text("В корзину", `addToCart|${product.id}`)
-      .text("Назад", `catalogBackPage|${product.id}|1|3`) // Пример "Назад"
+      .text("Заказать", `order|${product.id}`)
       .row()
-      .text("Заказать", `order|${product.id}`);
+      .text("Back", `layout|store_home_page`); // или другая логика
 
-    const mainPhotoUrl = (Array.isArray(images) && images.length > 0)
-      ? images[0].url
-      : 'https://kvartiry-tbilisi.ru/images/demo/product_banner.png';
-
-    const msg = await ctx.replyWithPhoto(mainPhotoUrl, {
+    const msg = await ctx.replyWithPhoto(photoUrl, {
       caption: detailsText,
       parse_mode: 'HTML',
       reply_markup: keyboard,
     });
     storeMessageId(ctx, msg.message_id);
 
-    log('info', `renderProductDetails: Товар ID ${product.id} (детальная карточка) отправлен.`, payload);
-    return msg.message_id;
-  } catch (error: any) {
-    log('error', `renderProductDetails: Ошибка при выводе детальной карточки: ${error.message}`, payload);
-    const errMsg = await ctx.reply("Произошла ошибка при загрузке детальной информации о товаре.");
-    storeMessageId(ctx, errMsg.message_id);
-    return null;
+    log('info', `renderProductDetails: товар ID=${product.id} (детально)`, payload);
+
+  } catch (err: any) {
+    log('error', `renderProductDetails: Ошибка: ${err.message}`, payload);
+    const errorMsg = await ctx.reply('Ошибка при загрузке детальной карточки товара.');
+    storeMessageId(ctx, errorMsg.message_id);
   }
 }

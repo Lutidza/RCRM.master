@@ -1,14 +1,16 @@
-// 📌 Путь: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/index.TelegramAPI.ts
-// 📌 Версия: 1.2.0
+// 📌 Путь: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/index.ts
+// 📌 Версия: 1.2.1
 //
 // [CHANGELOG]
 // - Убрана попытка загружать подкатегории и товары на главной странице `CatalogBlock`.
 // - Добавлено описание вывода только первого уровня категорий.
 // - Добавлена обработка отсутствия категорий.
+// - [FIX] Исправлен импорт BotContext: теперь берём из '@/plugins/TelegramAPI/types/TelegramBlocksTypes'
+//         вместо '@/plugins/TelegramAPI/utils/BotUtils/initializeBots'.
 
 import type { Payload } from 'payload';
 import { InlineKeyboard } from 'grammy';
-import type { BotContext } from '@/plugins/TelegramAPI/utils/BotUtils/initializeBots';
+import type { BotContext } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes'; // [FIXED IMPORT]
 import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
 
 /**
@@ -48,7 +50,7 @@ export async function renderCatalogBlock(ctx: BotContext, block: any, payload: P
     });
 
     // Отправка сообщения с обложкой и описанием
-    const bannerUrl = block.banner || 'https://kvartiry-tbilisi.ru/images/demo/catalog_banner-1.png';
+    const bannerUrl = block.banner || 'https://kvartiry-tbilisi.ru/images/demo/home.jpg';
     const description = block.description || 'Пожалуйста, выберите категорию:';
 
     await ctx.replyWithPhoto(bannerUrl, {

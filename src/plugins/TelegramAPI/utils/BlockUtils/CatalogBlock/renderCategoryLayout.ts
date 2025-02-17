@@ -1,11 +1,20 @@
 // Path: src/plugins/TelegramAPI/utils/BlockUtils/CatalogBlock/renderCategoryLayout.ts
 // Version: 1.3.0-use-snippet
+//
+// [CHANGELOG]
+// - Вместо renderProductCard, теперь вызываем renderProductSnippet,
+//   который уже умеет корректно подставлять DEMO_IMAGE_URL,
+//   если у товара пустой / невалидный images[0]?.url.
+//
+// - Логика осталась прежней: на первой странице показываем обложку категории,
+//   подкатегории, список товаров (snippet) и панель навигации.
 
 import type { Payload } from 'payload';
 import { InlineKeyboard } from 'grammy';
 import { storeMessageId } from '@/plugins/TelegramAPI/utils/SystemUtils/clearPreviousMessages';
 import { log } from '@/plugins/TelegramAPI/utils/SystemUtils/Logger';
 import { paginateCategoryItems } from './paginateCategoryItems';
+// Вместо старого renderProductCard импортируем snippet:
 import { renderProductSnippet } from './renderProductSnippet';
 import type { BotContext } from '@/plugins/TelegramAPI/types/TelegramBlocksTypes';
 
@@ -19,9 +28,11 @@ export async function renderCategoryLayout(
   try {
     if (!ctx.chat) return;
 
+    // Инициализируем массивы (если не инициализированы)
     if (!ctx.session.categoryLayoutMessages) ctx.session.categoryLayoutMessages = [];
     if (!ctx.session.categoryPageMessages) ctx.session.categoryPageMessages = [];
 
+    // Загружаем саму категорию
     const category = await payload.findByID({
       collection: 'product-categories',
       id: categoryId,
@@ -32,6 +43,7 @@ export async function renderCategoryLayout(
       return;
     }
 
+    // Обложка категории
     const bannerUrl = Array.isArray(category.media) && category.media.length > 0
       ? category.media[0].url
       : 'https://kvartiry-tbilisi.ru/images/demo/catalog_banner-1.png';
@@ -43,7 +55,7 @@ export async function renderCategoryLayout(
     storeMessageId(ctx, catMsg.message_id);
     ctx.session.categoryLayoutMessages.push(catMsg.message_id);
 
-    // Подкатегории
+    // Подкатегории (если есть)
     const subcatsResult = await payload.find({
       collection: 'product-categories',
       where: { parent_id: { equals: categoryId } },
@@ -81,21 +93,19 @@ export async function renderCategoryLayout(
       return;
     }
 
+    // Рендерим товары как сниппеты
     for (const product of products) {
-      // Вызываем renderProductSnippet
-      const productMsgId = await renderProductSnippet(ctx, product.id, payload);
-      if (productMsgId) {
-        ctx.session.categoryPageMessages.push(productMsgId);
+      const snippetMsgId = await renderProductSnippet(ctx, product.id, payload);
+      if (snippetMsgId) {
+        ctx.session.categoryPageMessages.push(snippetMsgId);
       }
     }
 
-    // Кнопки навигации
+    // Кнопки навигации (Back, Store, Next/Home)
     const navKeyboard = new InlineKeyboard();
 
-    // Back => layout|store_home_page
+    // На первой странице обычно Back => layout|store_home_page (или как вам нужно)
     navKeyboard.text("Back", "layout|store_home_page");
-
-    // 🛒 Store
     navKeyboard.text("🛒 Store", "layout|store_home_page");
 
     if (page < totalPages) {
@@ -112,7 +122,8 @@ export async function renderCategoryLayout(
     ctx.session.categoryPageMessages.push(navMsg.message_id);
 
     log('info', `renderCategoryLayout: page=${page}, categoryId=${categoryId}`, payload);
+
   } catch (err) {
-    log('error', `Ошибка renderCategoryLayout: ${err}`, payload);
+    log('error', `renderCategoryLayout: Ошибка: ${err}`, payload);
   }
 }
